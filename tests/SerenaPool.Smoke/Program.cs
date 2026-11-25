@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using ModelContextProtocol.Client;
@@ -12,7 +13,7 @@ var sandbox = Directory.CreateDirectory(Path.Combine(scratchRoot, $"serena-pool-
 var primary = Path.Combine(sandbox, "主工作区");
 var secondary = Path.Combine(sandbox, "worktree");
 var app = Path.GetFullPath("src/SerenaPool");
-var binary = Path.Combine(AppContext.BaseDirectory, "SerenaPool.exe");
+var binary = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "SerenaPool.exe" : "SerenaPool");
 var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 var start = new ProcessStartInfo(binary)
 {
@@ -62,6 +63,14 @@ try
     await using var client = await McpClient.CreateAsync(transport, cancellationToken: ct);
     var tools = await client.ListToolsAsync(cancellationToken: ct);
     Check(tools.Select(t => t.Name).Order().SequenceEqual(new[] { "acquire", "call", "list", "release" }), "MCP tools");
+    var stdio = new StdioClientTransport(new()
+    {
+        Command = binary, Arguments = ["stdio", "--urls", url.GetLeftPart(UriPartial.Authority)],
+        WorkingDirectory = sandbox
+    });
+    await using var pipeClient = await McpClient.CreateAsync(stdio, cancellationToken: ct);
+    var pipeTools = await pipeClient.ListToolsAsync(cancellationToken: ct);
+    Check(pipeTools.Select(t => t.Name).Order().SequenceEqual(tools.Select(t => t.Name).Order()), "stdio tools");
 
     async Task<CallToolResult> Tool(string name, params (string, object?)[] arguments) =>
         await client.CallToolAsync(name, arguments.ToDictionary(pair => pair.Item1, pair => pair.Item2), cancellationToken: ct);
@@ -88,9 +97,13 @@ try
     var third = ids[2];
     var all = await Snapshot();
     Check(all.Count == 2 && all.Select(w => (int)w!["pid"]!).Distinct().Count() == 2, "one process per worktree");
-    var main = all.Single(w => (string?)w!["workdir"] == primary)!;
+    var main = all.Single(w => w!["leases"]!.AsArray().Count == 2)!;
+    primary = (string)main["workdir"]!;
+    secondary = (string)all.Single(w => w != main)!["workdir"]!;
     Check(main["leases"]!.AsArray().Count == 2 && !Text(await Tool("list")).Contains(ids[0]), "shared process, private handles");
-    Check(Text(await Call(ids[0], "marker = 731\nmarker")).Contains("731"), "first REPL variable");
+    var fromStdio = await pipeClient.CallToolAsync("call", new Dictionary<string, object?>
+        { ["instance_id"] = ids[0], ["code"] = "marker = 731\nmarker" }, cancellationToken: ct);
+    Check(Text(fromStdio).Contains("731"), "stdio and HTTP share the same backend and lease");
     Check(Text(await Call(ids[1], "'independent' if 'marker' not in globals() else 'contaminated'")).Contains("independent"), "independent namespace");
     Check(Text(await Call(ids[0], "marker")).Contains("731"), "persisted namespace");
     const string symbol = "s.lsp.find_symbol('Marker', relative_path='sample.py', include_body=True)";
@@ -142,6 +155,7 @@ try
     }
     finally { foreach (var p in tracked) p.Dispose(); }
     Console.WriteLine($"Passed: forced manager exit cleaned up Serena and {tracked.Length} observed runtime processes.");
+    await CheckColdStdio(binary, sandbox, primary, secret, ct);
 }
 finally
 {
@@ -155,6 +169,48 @@ finally
 static void Check(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
+}
+
+static async Task CheckColdStdio(string binary, string sandbox, string project, string token, CancellationToken ct)
+{
+    using var reservation = new TcpListener(IPAddress.Loopback, 0);
+    reservation.Start();
+    var port = ((IPEndPoint)reservation.LocalEndpoint).Port;
+    reservation.Stop();
+    var url = $"http://127.0.0.1:{port}";
+    Task<McpClient> Connect() => McpClient.CreateAsync(new StdioClientTransport(new()
+    {
+        Command = binary, WorkingDirectory = sandbox, Arguments = ["stdio", "--urls", url],
+        EnvironmentVariables = new Dictionary<string, string?>
+        {
+            ["SERENA_HOME"] = Path.Combine(sandbox, "serena-home"), ["SerenaPool__Token"] = token,
+            ["Pool__IdleTimeout"] = "00:00:01"
+        }
+    }), cancellationToken: ct);
+    var clients = await Task.WhenAll(Connect(), Connect());
+    await using (var second = clients[1])
+    {
+        string id;
+        await using (var first = clients[0])
+        {
+            var acquired = await first.CallToolAsync("acquire", new Dictionary<string, object?> { ["workdir"] = project }, cancellationToken: ct);
+            var text = acquired.Content.OfType<TextContentBlock>().Single().Text;
+            Check(acquired.IsError != true, text);
+            id = (string)JsonNode.Parse(text)!["instance_id"]!;
+        }
+        var released = await second.CallToolAsync("release", new Dictionary<string, object?> { ["instance_id"] = id }, cancellationToken: ct);
+        Check(released.IsError != true && bool.Parse(released.Content.OfType<TextContentBlock>().Single().Text), "independent stdio bridge lifetimes");
+    }
+    using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    wait.CancelAfter(TimeSpan.FromSeconds(35));
+    while (true)
+    {
+        using var probe = new TcpClient();
+        try { await probe.ConnectAsync(IPAddress.Loopback, port, wait.Token); }
+        catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused) { break; }
+        await Task.Delay(200, wait.Token);
+    }
+    Console.WriteLine("Passed: simultaneous cold stdio startup, shared leases, EOF and automatic host shutdown.");
 }
 
 static async Task Git(params string[] args)

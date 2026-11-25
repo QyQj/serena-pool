@@ -36,7 +36,7 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
     }
 
     private readonly Lock sync = new();
-    private readonly Dictionary<string, Worker> workers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Worker> workers = new(PoolSettings.PathComparer);
     private readonly Dictionary<Guid, Lease> leases = [];
     private long nextNumber;
 

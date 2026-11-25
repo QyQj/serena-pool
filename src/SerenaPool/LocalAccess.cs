@@ -6,19 +6,26 @@ namespace SerenaPool;
 
 internal sealed class LocalAccess(string secret)
 {
+    public static string TokenPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData,
+        Environment.SpecialFolderOption.DoNotVerify), "SerenaPool", "access-token");
     private readonly byte[] expected = Encoding.UTF8.GetBytes(secret);
 
     public static LocalAccess Load(IConfiguration config)
     {
         if (config["SerenaPool:Token"] is { Length: > 0 } configured) return new(configured);
-        var dir = Directory.CreateDirectory(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SerenaPool"));
-        var path = Path.Combine(dir.FullName, "access-token");
+        var path = TokenPath;
+        var directory = Path.GetDirectoryName(path)!;
+        if (OperatingSystem.IsWindows()) Directory.CreateDirectory(directory);
+        else Directory.CreateDirectory(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         if (!File.Exists(path))
         {
-            var temporary = Path.Combine(dir.FullName, Path.GetRandomFileName());
+            var temporary = Path.Combine(directory, Path.GetRandomFileName());
             try
             {
-                File.WriteAllText(temporary, Convert.ToHexString(RandomNumberGenerator.GetBytes(32)));
+                var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+                if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                using (var file = new FileStream(temporary, options))
+                    file.Write(Encoding.ASCII.GetBytes(Convert.ToHexString(RandomNumberGenerator.GetBytes(32))));
                 try { File.Move(temporary, path); }
                 catch (IOException) when (File.Exists(path)) { /* Another host finished initialization first. */ }
             }
