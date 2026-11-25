@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Serena Pool · 实例管理</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<header class="bar"><div class="shell bar-inner">
+  <a class="brand" href="/"><span class="mark" aria-hidden="true">≋</span> Serena Pool</a>
+  <span id="connection" class="connection">本机管理台</span>
+</div></header>
+<main class="shell">
+  <section id="login">
+    <h1>连接管理台</h1>
+    <p>输入本机访问令牌，查看 Serena 实例与领用情况。</p>
+    <form id="login-form">
+      <label for="token">访问令牌</label>
+      <input id="token" type="password" required autocomplete="off" spellcheck="false">
+      <button class="primary" type="submit">连接</button>
+    </form>
+    <p class="token-path">默认凭证文件<br><code>%LOCALAPPDATA%\SerenaPool\access-token</code></p>
+  </section>
+  <section id="dashboard" hidden>
+    <div class="heading"><div><h1 id="pool-title">实例池</h1><p id="summary"></p></div>
+      <div class="actions"><button id="refresh">刷新</button><button id="logout">断开连接</button></div>
+    </div>
+    <div class="surface table-wrap" role="region" aria-labelledby="pool-title" tabindex="0">
+      <table><thead><tr><th scope="col">工作目录</th><th scope="col">状态</th><th scope="col">领用</th><th scope="col">执行 / 排队</th><th scope="col">操作</th></tr></thead>
+        <tbody id="rows"></tbody></table>
+      <div id="empty" hidden><strong>暂无实例</strong><p>Agent 调用 <code>acquire(workdir)</code> 后，实例会显示在这里。</p></div>
+    </div>
+    <section id="detail" class="surface" hidden aria-labelledby="detail-title"></section>
+    <p class="foot">最近同步 <time id="updated">—</time></p>
+  </section>
+  <p id="notice" role="status" aria-live="polite"></p>
+</main>
+</body>
+</html>

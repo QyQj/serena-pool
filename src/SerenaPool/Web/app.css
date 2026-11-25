@@ -1,0 +1,61 @@
+* { box-sizing: border-box; }
+:root { color-scheme: light; --ink: #162d28; --muted: #536a63; --line: #d4dfd9; --green: #13684f; }
+body { margin: 0; min-height: 100vh; color: var(--ink); background: #f4f7f3; font: 15px/1.6 Inter, "Microsoft YaHei UI", system-ui, sans-serif; }
+.shell { width: min(1180px, calc(100% - 3rem)); margin-inline: auto; }
+.bar { background: #102d27; color: white; }
+.bar-inner, .heading, .actions, .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.bar-inner { min-height: 64px; }
+.brand { color: inherit; text-decoration: none; display: inline-flex; gap: .65rem; align-items: center; font-size: 1.13rem; font-weight: 680; }
+.mark { width: 30px; height: 30px; border: 1px solid #78ac95; border-radius: 7px; color: #b7ebc4; display: grid; place-content: center; font: bold 29px/1 monospace; }
+.connection { color: #c5dece; font-size: .83rem; }
+h1, h2, p { margin: 0; }
+h1 { font-size: clamp(1.9rem, 4vw, 2.7rem); letter-spacing: -.05em; line-height: 1.25; }
+h2 { font-size: 1.22rem; }
+p { color: var(--muted); }
+.heading { margin: 3rem 0 1.5rem; flex-wrap: wrap; }
+.heading p { margin-top: .5rem; }
+.surface, #login { border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+#login { max-width: 490px; margin: clamp(3rem, 10vh, 7rem) auto 0; padding: clamp(1.5rem, 5vw, 2.6rem); }
+#login h1 { font-size: 2rem; }
+#login p { margin-top: .8rem; }
+#login-form { display: grid; gap: .6rem; margin: 1.7rem 0; }
+label { font-weight: 650; }
+input, button { font: inherit; border: 1px solid #b8cac0; color: inherit; border-radius: 6px; background: white; }
+input { min-width: 0; padding: .6rem .8rem; }
+button { cursor: pointer; padding: .38rem .85rem; min-height: 36px; }
+button:hover { background: #eaf3ed; border-color: #7c9c8c; }
+button.primary { background: var(--green); color: white; border-color: var(--green); min-height: 42px; margin-top: .4rem; }
+button:focus-visible, input:focus-visible, a:focus-visible, .table-wrap:focus-visible { outline: 3px solid #368666; outline-offset: 3px; }
+.token-path, .foot { font-size: .82rem; }
+code, .mono, time { font-family: "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
+.table-wrap { overflow: auto; max-height: 62vh; container-type: inline-size; }
+table { width: 100%; border-spacing: 0; text-align: left; }
+thead { position: sticky; top: 0; z-index: 1; background: #eaf0e9; }
+th, td { padding: .9rem 1rem; border-bottom: 1px solid var(--line); }
+thead th { font-size: .8rem; font-weight: 650; color: var(--muted); }
+tbody th { position: sticky; left: 0; background: #fff; }
+tbody tr:last-child > * { border-bottom: 0; }
+tr.selected > * { background: #eff7f0; }
+.path { display: block; overflow-wrap: anywhere; font: normal .78rem/1.5 Consolas, monospace; color: var(--muted); }
+.tag { display: inline-block; border-radius: 4px; padding: .12rem .5rem; font-size: .8rem; color: #245740; background: #e0f1e3; }
+.tag.failed { color: #902822; background: #f9e5df; }
+.tag.idle { color: #5d625e; background: #eef0ec; }
+.tag.starting { color: #775706; background: #fff1c6; }
+#empty { text-align: center; padding: 3rem 1rem; }
+#empty p { margin-top: .5rem; }
+#detail { padding: 1.4rem; margin-top: 1rem; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; }
+dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
+.lease { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; padding-block: .65rem; border-top: 1px solid var(--line); }
+.lease button { margin-left: auto; }
+.foot, #notice { margin-top: .8rem; }
+#notice { color: #9a3429; overflow-wrap: anywhere; }
+[hidden] { display: none !important; }
+@container (width < 640px) {
+  table, tbody, tr, th, td { display: block; }
+  thead { display: none; }
+  tr { border-bottom: 1px solid var(--line); padding: .6rem; }
+  tbody th, td { border: 0; padding: .25rem .5rem; }
+  td::before { content: attr(data-label) "　"; color: var(--muted); font-size: .82rem; }
+}
+@media (max-width: 560px) { .shell { width: calc(100% - 1.5rem); } .heading { margin-top: 1.6rem; } .actions { gap: .5rem; } }

@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SerenaPool/SerenaPool.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SerenaPool.Smoke/SerenaPool.Smoke.csproj" />
+  </Folder>
+</Solution>
