@@ -1,4 +1,4 @@
-name: Publish to NuGet
+name: Publish packages
 
 on:
   pull_request:
@@ -6,12 +6,18 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      github_packages_run_id:
+        description: Release run ID to copy to GitHub Packages
+        type: string
+        required: false
 
 permissions:
   contents: read
 
 jobs:
   pack:
+    if: github.event_name != 'workflow_dispatch' || inputs.github_packages_run_id == ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -66,3 +72,25 @@ jobs:
         env:
           NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: dotnet nuget push 'packages/*.nupkg' --source https://api.nuget.org/v3/index.json --api-key "$NUGET_API_KEY" --skip-duplicate
+
+  publish-github:
+    needs: pack
+    if: >-
+      ${{ !cancelled() &&
+          ((github.event_name == 'push' && github.ref_type == 'tag' && needs.pack.result == 'success') ||
+           (github.event_name == 'workflow_dispatch' && inputs.github_packages_run_id != '')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: packages
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.github_packages_run_id || github.run_id }}
+      - name: Push to GitHub Packages
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ github.token }}
+        run: dotnet nuget push 'packages/SerenaPool.*.nupkg' --source "https://nuget.pkg.github.com/$GITHUB_REPOSITORY_OWNER/index.json" --api-key "$GITHUB_PACKAGES_TOKEN" --skip-duplicate
