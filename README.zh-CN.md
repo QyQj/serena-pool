@@ -9,7 +9,7 @@ Serena Pool 让同一台电脑上的多个 MCP 客户端和编码 Agent 共用 [
 - **按工作目录 / worktree 复用进程**：将 `workdir` 规范化为物理绝对路径（自动解析符号链接与目录联接），同一仓库的多个客户端共用同一个预热好的 Serena 与语言服务器进程，不同 Git worktree 并行运行、互不干扰。
 - **隔离的 REPL 会话（领用 / Lease）**：每次调用 `acquire(workdir)` 都会在 Serena 中开启独立的 REPL 会话并返回私有 `instance_id`，各 Agent 的 Python 变量命名空间相互隔离，同时避免重复启动语言服务器。
 - **同目录串行调度**：发往同一项目目录的调用通过实例内互斥门控排队顺序执行，防止并发操作 REPL 或 LSP 状态产生冲突。
-- **多客户端共享（`stdio` + Streamable HTTP）**：`serena-pool mcp` 通过与当前用户和端口绑定的命名管道桥接请求；首个客户端连接时自动拉起脱离终端的后台管理进程，后续客户端直接复用。
+- **多客户端共享（`stdio` 与 Streamable HTTP）**　后台管理进程用同一个实例池处理两种连接。每条 `stdio` 连接各自通过一个桥接进程，经本机命名管道接入后台。
 - **一条命令接入 7 种客户端**：`serena-pool setup` 可同时写入 MCP 注册项并安装配套 `serena-pool` skill，支持写入前冲突检查与失败自动回滚。
 - **免令牌本机 Web 管理页**：在 `http://127.0.0.1:32980/` 实时查看实例状态、PID、执行/排队数、最近错误和领用记录，支持手动释放滞留领用与回收空闲实例。
 - **子进程树可靠回收**：Windows 使用 Job Object（`KILL_ON_JOB_CLOSE`），Linux 和 macOS 使用独立 POSIX 进程组配合父进程守望启动器，即使管理进程异常退出也不会残留语言服务器子进程。
@@ -17,14 +17,20 @@ Serena Pool 让同一台电脑上的多个 MCP 客户端和编码 Agent 共用 [
 ## 工作原理
 
 ```text
-  MCP 客户端 A (stdio) ─┐
-  MCP 客户端 B (stdio) ─┼─► 本机命名管道桥接 ─┐
-  HTTP MCP (/mcp + 令牌) ─────────────────────┼─► 共享后台管理进程 ──► 实例 1 (/repo-main) ──► LSP
-  Web 管理页 (http://127.0.0.1:32980/) ───────┘  (--background-serve) └─► 实例 2 (/repo-wt)  ──► LSP
+  MCP 客户端
+      │ stdio
+      ▼
+  客户端桥接进程 (serena-pool mcp)
+      │ 命名管道
+      ▼
+  ┌────────────────────────────────────────────────┐
+  │ ASP.NET Core 管理后台进程 (--background-serve) │
+  │ LocalPipeServer ─► PoolTools ─► InstancePool   │──► Serena 工作进程 ─► 语言服务器
+  └────────────────────────────────────────────────┘
 ```
 
-1. **按需拉起共享管理进程**：首个 `serena-pool mcp` 客户端尝试连接用户专属命名管道（`serena-pool-<user>-<port>`）；若尚未运行，则自动启动 `--background-serve` ASP.NET Core 后台服务。多个客户端同时冷启动时，固定回环端口会选举出唯一宿主。
-2. **按目录管理实例**：调用 `acquire(workdir)` 时，若该物理路径尚无可用实例，池管理器会启动一个 Serena 进程（`serena start-mcp-server --transport stdio --project <workdir> --context ide --agent-interface repl --add-mode no-memories --enable-web-dashboard false --enable-gui-log-window false`）并建立新的 REPL 会话。
+1. **按需启动共享管理进程**　所有 `serena-pool mcp` 桥接进程默认使用 `http://127.0.0.1:32980`。桥接先按配置的端口连接 `serena-pool-<user>-<port>`。连接超时后，它会尝试启动脱离终端的 `--background-serve` 后台进程，并传入同一个监听地址和端口。多个进程同时启动且使用同一个回环 IP 地址和 TCP 端口时，只有一个能绑定该监听地址。同一用户在不同回环地址使用相同端口时，管道名仍相同。要运行独立的实例池，请使用不同端口。
+2. **按目录管理实例**　管道服务端与实例池运行在同一个 ASP.NET Core 后台进程中。`PoolTools` 收到 `acquire(workdir)` 后交给 `InstancePool`。如果该目录没有可用实例，`InstancePool` 会启动 Serena 工作进程（`serena start-mcp-server --transport stdio --project <workdir> --context ide --agent-interface repl --add-mode no-memories --enable-web-dashboard false --enable-gui-log-window false`）。每次领用都会在对应工作进程中新建独立的 REPL 会话。
 3. **故障隔离**：若某个 Serena 进程意外退出或中断，仅该实例被标记为 `failed` 并使其领用失效；正在执行的调用会返回“执行结果未知”错误以便调用方先核对状态再决定是否重试，其他工作目录的实例不受影响。
 4. **自动回收与空闲退出**：无活动领用在超过 `Pool__LeaseTimeout` 后自动回收（排队与执行期间暂停计时）；无领用且无待处理调用的空闲实例在超过 `Pool__IdleTimeout` 后停止。所有 `stdio` 客户端断开且全部实例回收后，自动启动的后台进程会空闲退出（命名管道每 15 秒检查一次）。
 
@@ -64,7 +70,7 @@ serena-pool setup codex
 
 | 客户端标识 | MCP 配置写入位置 | Skill 安装路径 | 说明 |
 | --- | --- | --- | --- |
-| `codex` | `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`） | `~/.agents/skills/serena-pool/SKILL.md` | 写入 `[mcp_servers.serena-pool]`，并通过 `env_vars` 透传 `Pool__Executable` 与 `SerenaPool__Token`。 |
+| `codex` | `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`） | `~/.agents/skills/serena-pool/SKILL.md` | 写入 `[mcp_servers.serena-pool]`，并通过 `env_vars` 透传 `Pool__Executable`。 |
 | `claude-code` | `$CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`） | `$CLAUDE_CONFIG_DIR/skills/serena-pool/SKILL.md`（默认 `~/.claude/skills/serena-pool/SKILL.md`） | 通过 `claude mcp add --transport stdio --scope user` 注册；需要 PATH 上有原生 `claude` 命令。 |
 | `cursor` | `~/.cursor/mcp.json` | `~/.agents/skills/serena-pool/SKILL.md` | 写入 `mcpServers.serena-pool`（`type: "stdio"`）。 |
 | `copilot` | `$COPILOT_HOME/mcp-config.json`（默认 `~/.copilot/mcp-config.json`） | `~/.agents/skills/serena-pool/SKILL.md` | Copilot CLI 与 VS Code 原生 Copilot 共用配置；通过 `${VAR:-...}` 引用传递环境变量。 |
@@ -106,7 +112,7 @@ serena-pool --help
   ```
 
 - **Streamable HTTP**：连接 `http://127.0.0.1:32980/mcp`，请求头带上 `Authorization: Bearer <令牌>`。
-  - 若未通过环境变量指定 `SerenaPool__Token`，后台进程首次启动时会随机生成 64 位十六进制令牌并写入默认凭证文件：
+  - 默认凭证文件不存在时，后台进程会生成令牌并写入文件。文件位置如下。
     - Windows：`%LOCALAPPDATA%\SerenaPool\access-token`
     - Linux：`~/.local/share/SerenaPool/access-token`（或 `$XDG_DATA_HOME/SerenaPool/access-token`）
     - macOS：`~/Library/Application Support/SerenaPool/access-token`
@@ -158,9 +164,8 @@ symbols
 | `Pool__Executable` | 在 PATH 查找 `serena.exe`（Windows）或 `serena`（Linux/macOS） | 指定 Serena 可执行文件或其所在目录的绝对路径。 |
 | `Pool__IdleTimeout` | `00:10:00` | 实例在全部领用释放且无待处理调用后的空闲保留时长（必须大于零）。 |
 | `Pool__LeaseTimeout` | `01:00:00` | 无活动领用的超时回收时长，排队与执行期间暂停计时（必须大于零）。 |
-| `SerenaPool__Token` | 首次启动时自动生成并保存在凭证文件中 | 为 HTTP MCP（`/mcp`）指定自定义 Bearer 令牌；请通过启动环境传入，切勿明文写入客户端配置文件。 |
 
-如果客户端会过滤或脱敏传给子进程的环境变量，请在客户端配置中放行所需变量。在 Gemini CLI 中使用自定义 `SerenaPool__Token` 时，需要将该变量名加入 `security.environmentVariableRedaction.allowed`。
+如果客户端会过滤或脱敏传给子进程的环境变量，请在客户端配置中放行所需变量。
 
 ## 从源码构建、测试与打包
 

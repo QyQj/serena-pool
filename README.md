@@ -9,7 +9,7 @@ Serena Pool lets multiple local MCP clients and coding agents share [Serena](htt
 - **One worker per checkout / worktree**: Resolves `workdir` to its canonical physical path (including symlinks and junctions), so clients targeting the same repository reuse one warm Serena and language server process while separate Git worktrees run concurrently.
 - **Isolated REPL sessions (`leases`)**: Every `acquire(workdir)` opens a separate Serena REPL session with a private `instance_id`, keeping Python variables isolated per agent without duplicating language servers.
 - **Serialized per-worker execution**: Calls targeting the same directory are queued and executed sequentially through a per-worker gate, preventing concurrent REPL or LSP state collisions.
-- **Shared `stdio` & Streamable HTTP pool**: Clients running `serena-pool mcp` communicate over a user- and port-scoped named pipe bridge that starts a single detached background manager on first connection and shares it across clients.
+- **Shared `stdio` and Streamable HTTP pool**. The background manager serves both transports from one pool. Each `stdio` connection uses its own bridge to the manager over a local named pipe.
 - **One-command setup for 7 clients**: `serena-pool setup` registers the `serena-pool` MCP server and installs the companion `serena-pool` skill with pre-write conflict checks and atomic rollback.
 - **Token-free local Web dashboard**: Monitor worker status, PIDs, queues, errors, and leases at `http://127.0.0.1:32980/`, release stale leases, and recycle idle workers.
 - **Process-tree cleanup**: Contains spawned Serena and language server processes in a Windows Job Object (`KILL_ON_JOB_CLOSE`) on Windows or a dedicated POSIX process group with a parent-watching launcher on Linux and macOS.
@@ -17,14 +17,20 @@ Serena Pool lets multiple local MCP clients and coding agents share [Serena](htt
 ## How It Works
 
 ```text
-  MCP Client A (stdio) ─┐
-  MCP Client B (stdio) ─┼─► Named Pipe Bridge ─┐
-  HTTP MCP (/mcp + Bearer token) ──────────────┼─► Shared Background Host ──► Worker 1 (/repo-main) ──► LSP
-  Web Dashboard (http://127.0.0.1:32980/) ─────┘     (--background-serve) └─► Worker 2 (/repo-wt)   ──► LSP
+  MCP Client
+      │ stdio
+      ▼
+  Client Bridge Process (serena-pool mcp)
+      │ named pipe
+      ▼
+  ┌──────────────────────────────────────────────────────┐
+  │ ASP.NET Core Background Process (--background-serve) │
+  │ LocalPipeServer ─► PoolTools ─► InstancePool         │──► Serena Worker Process ─► Language Server
+  └──────────────────────────────────────────────────────┘
 ```
 
-1. **On-demand background host**: The first `serena-pool mcp` client connects to the user-scoped named pipe (`serena-pool-<user>-<port>`). If no host is listening, it launches a detached `--background-serve` ASP.NET Core process; concurrent cold starts elect a single host on the fixed loopback port.
-2. **Per-directory workers**: When `acquire(workdir)` runs, the pool starts a Serena worker (`serena start-mcp-server --transport stdio --project <workdir> --context ide --agent-interface repl --add-mode no-memories --enable-web-dashboard false --enable-gui-log-window false`) if one is not already active for that canonical directory, then opens a fresh REPL session.
+1. **On-demand background host**. All `serena-pool mcp` bridges default to `http://127.0.0.1:32980`. Each bridge tries the pipe `serena-pool-<user>-<port>` using the configured port. If the connection times out, it attempts to start a detached `--background-serve` host at the same address and port. When concurrent starts target the same loopback IP address and TCP port, only one host can bind that endpoint. Different loopback addresses on the same port still use the same pipe name for a given user. Use different ports for independent pools.
+2. **Per-directory workers**. The pipe server and instance pool run inside the ASP.NET Core background process. When `PoolTools` handles `acquire(workdir)`, `InstancePool` starts a Serena worker (`serena start-mcp-server --transport stdio --project <workdir> --context ide --agent-interface repl --add-mode no-memories --enable-web-dashboard false --enable-gui-log-window false`) if the directory has no available worker. Each acquisition opens a new REPL session on that worker.
 3. **Failure isolation**: If a Serena worker exits unexpectedly or disconnects mid-call, only that worker transitions to `failed` and invalidates its leases; any in-flight call fails with an unknown-outcome error so the caller can inspect state before retrying, while workers for other directories stay alive.
 4. **Automatic recycling & shutdown**: Inactive leases expire after `Pool__LeaseTimeout` (paused while calls are queued or executing). Idle workers with zero leases and zero pending calls shut down after `Pool__IdleTimeout`. Once all `stdio` clients disconnect and all workers are recycled, the auto-started background host exits cleanly (pipe idle check runs every 15 seconds).
 
@@ -64,7 +70,7 @@ Pass one or more client IDs after `setup` (e.g., `serena-pool setup codex cursor
 
 | Client ID | MCP Registration Target | Skill Path | Notes |
 | --- | --- | --- | --- |
-| `codex` | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`) | `~/.agents/skills/serena-pool/SKILL.md` | Writes `[mcp_servers.serena-pool]` and forwards `Pool__Executable` & `SerenaPool__Token` via `env_vars`. |
+| `codex` | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`) | `~/.agents/skills/serena-pool/SKILL.md` | Writes `[mcp_servers.serena-pool]` and forwards `Pool__Executable` via `env_vars`. |
 | `claude-code` | `$CLAUDE_CONFIG_DIR/.claude.json` (default `~/.claude.json`) | `$CLAUDE_CONFIG_DIR/skills/serena-pool/SKILL.md` (default `~/.claude/skills/serena-pool/SKILL.md`) | Runs `claude mcp add --transport stdio --scope user`; requires native `claude` on `PATH`. |
 | `cursor` | `~/.cursor/mcp.json` | `~/.agents/skills/serena-pool/SKILL.md` | Writes `mcpServers.serena-pool` (`type: "stdio"`). |
 | `copilot` | `$COPILOT_HOME/mcp-config.json` (default `~/.copilot/mcp-config.json`) | `~/.agents/skills/serena-pool/SKILL.md` | Shared by Copilot CLI and VS Code native Copilot; forwards env vars via `${VAR:-...}` references. |
@@ -106,7 +112,7 @@ serena-pool --help
   ```
 
 - **Streamable HTTP**: Connect to `http://127.0.0.1:32980/mcp` with the header `Authorization: Bearer <token>`.
-  - Unless `SerenaPool__Token` is set in the environment, the host generates a random 64-character hex token on first startup and stores it in:
+  - The host generates the default token if its credential file is missing. The file is in one of these locations.
     - Windows: `%LOCALAPPDATA%\SerenaPool\access-token`
     - Linux: `~/.local/share/SerenaPool/access-token` (or `$XDG_DATA_HOME/SerenaPool/access-token`)
     - macOS: `~/Library/Application Support/SerenaPool/access-token`
@@ -158,9 +164,8 @@ Set environment variables before launching your MCP client so the shared backgro
 | `Pool__Executable` | Searches `PATH` for `serena.exe` (Windows) or `serena` (Linux/macOS) | Absolute path to the Serena executable or its containing directory. |
 | `Pool__IdleTimeout` | `00:10:00` | How long a worker stays alive after all leases are released and no calls are running or queued (must be `> 0`). |
 | `Pool__LeaseTimeout` | `01:00:00` | Inactivity timeout for an open lease; timer pauses while calls are queued or executing (must be `> 0`). |
-| `SerenaPool__Token` | Auto-generated token file in `LocalApplicationData` | Custom Bearer token for HTTP MCP (`/mcp`). Set in the environment rather than hardcoding into client config files. |
 
-If your MCP client filters environment variables passed to child processes, allow the variables you rely on in the client's settings. In Gemini CLI, using a custom `SerenaPool__Token` requires adding `"SerenaPool__Token"` to `security.environmentVariableRedaction.allowed`.
+If your MCP client filters environment variables passed to child processes, allow the variables you rely on in the client's settings.
 
 ## Building, Testing & Packaging from Source
 
