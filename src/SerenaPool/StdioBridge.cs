@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Security.Principal;
+using System.Text;
 
 namespace SerenaPool;
 
@@ -12,16 +13,16 @@ internal static class StdioBridge
         return $"serena-pool-{user}-{port}";
     }
 
-    public static async Task RunAsync(Uri address, string[] hostArgs)
+    public static async Task RunAsync(Uri address)
     {
-        if (address.Port == 0) throw new ArgumentException("stdio 需要明确的本机端口。");
         using var pipe = new NamedPipeClientStream(".", PipeName(address.Port), PipeDirection.InOut,
             PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         try { await pipe.ConnectAsync(200); }
         catch (TimeoutException)
         {
-            var start = ProcessLauncher.Self(["--background-serve", .. hostArgs, "--urls", address.GetLeftPart(UriPartial.Authority)]);
+            var start = ProcessLauncher.Self("--background-serve", "--urls", address.GetLeftPart(UriPartial.Authority));
             start.RedirectStandardInput = start.RedirectStandardOutput = start.RedirectStandardError = true;
+            start.StandardErrorEncoding = Encoding.UTF8;
             using var process = Process.Start(start)!;
             process.StandardInput.Close();
             string? diagnostic = null;
@@ -34,8 +35,8 @@ internal static class StdioBridge
             try { await pipe.ConnectAsync(10000); }
             catch (TimeoutException ex)
             {
-                var detail = Volatile.Read(ref diagnostic) ?? "请用 serve 前台查看启动日志。";
-                throw new IOException($"无法连接本机 Serena Pool。{detail}", ex);
+                var detail = Volatile.Read(ref diagnostic) ?? "请检查后台启动环境或用 --urls 试用其他端口。";
+                throw new IOException($"无法连接 Serena Pool（{address}）。{detail}", ex);
             }
         }
 

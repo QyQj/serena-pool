@@ -1,0 +1,16 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.qyqj/serena-pool",
+  "title": "Serena Pool",
+  "description": "Share local Serena REPL workers across MCP clients.",
+  "version": "__PACKAGE_VERSION__",
+  "packages": [
+    {
+      "registryType": "nuget",
+      "identifier": "SerenaPool",
+      "version": "__PACKAGE_VERSION__",
+      "transport": { "type": "stdio" },
+      "packageArguments": [{ "type": "positional", "value": "mcp" }]
+    }
+  ]
+}

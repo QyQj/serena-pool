@@ -12,7 +12,12 @@ internal sealed class LocalAccess(string secret)
 
     public static LocalAccess Load(IConfiguration config)
     {
-        if (config["SerenaPool:Token"] is { Length: > 0 } configured) return new(configured);
+        if (config["SerenaPool:Token"] is { Length: > 0 } and not PoolSettings.DefaultEnvironmentValue and var configured)
+        {
+            if (configured.StartsWith("${SerenaPool__Token", StringComparison.Ordinal))
+                throw new InvalidDataException("宿主未解析 SerenaPool__Token 的环境变量引用。");
+            return new(configured);
+        }
         var path = TokenPath;
         var directory = Path.GetDirectoryName(path)!;
         if (OperatingSystem.IsWindows()) Directory.CreateDirectory(directory);

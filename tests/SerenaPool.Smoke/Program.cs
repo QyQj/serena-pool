@@ -15,10 +15,11 @@ var secondary = Path.Combine(sandbox, "worktree");
 var app = Path.GetFullPath("src/SerenaPool");
 var binary = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "SerenaPool.exe" : "SerenaPool");
 var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+var url = new Uri($"http://127.0.0.1:{ReservePort()}");
 var start = new ProcessStartInfo(binary)
 {
-    UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true,
-    WorkingDirectory = app, ArgumentList = { "--urls", "http://127.0.0.1:0" }
+    UseShellExecute = false, CreateNoWindow = true,
+    WorkingDirectory = app, ArgumentList = { "--background-serve", "--urls", url.GetLeftPart(UriPartial.Authority) }
 };
 start.Environment["SerenaPool__Token"] = secret;
 start.Environment["SERENA_HOME"] = Path.Combine(sandbox, "serena-home");
@@ -38,17 +39,26 @@ try
     await Git("-C", primary, "worktree", "add", "--quiet", "--detach", secondary);
     await File.WriteAllTextAsync(Path.Combine(secondary, "sample.py"), "class Marker:\r\n    branch = 'secondary'\r\n", ct);
 
-    var ready = new TaskCompletionSource<Uri>(TaskCreationOptions.RunContinuationsAsynchronously);
-    host.OutputDataReceived += (_, e) =>
-    {
-        const string marker = "Now listening on: ";
-        if (e.Data is { } line && line.IndexOf(marker, StringComparison.Ordinal) is var i && i >= 0)
-            ready.TrySetResult(new Uri(line[(i + marker.Length)..]));
-    };
     hostStarted = host.Start();
-    host.BeginOutputReadLine();
-    var url = await ready.Task.WaitAsync(TimeSpan.FromSeconds(15), ct);
     using var http = new HttpClient { BaseAddress = url };
+    using (var ready = CancellationTokenSource.CreateLinkedTokenSource(ct))
+    {
+        ready.CancelAfter(TimeSpan.FromSeconds(15));
+        while (true)
+        {
+            Check(!host.HasExited, "background host startup");
+            try
+            {
+                using var response = await http.GetAsync("/", ready.Token);
+                response.EnsureSuccessStatusCode();
+                break;
+            }
+            catch (HttpRequestException ex) when (ex.HttpRequestError == HttpRequestError.ConnectionError)
+            {
+                await Task.Delay(50, ready.Token);
+            }
+        }
+    }
     using var denied = await http.GetAsync("/api/workers", ct);
     Check(denied.StatusCode == HttpStatusCode.Unauthorized, "API requires token");
     http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secret);
@@ -65,7 +75,7 @@ try
     Check(tools.Select(t => t.Name).Order().SequenceEqual(new[] { "acquire", "call", "list", "release" }), "MCP tools");
     var stdio = new StdioClientTransport(new()
     {
-        Command = binary, Arguments = ["stdio", "--urls", url.GetLeftPart(UriPartial.Authority)],
+        Command = binary, Arguments = ["mcp", "--urls", url.GetLeftPart(UriPartial.Authority)],
         WorkingDirectory = sandbox
     });
     await using var pipeClient = await McpClient.CreateAsync(stdio, cancellationToken: ct);
@@ -160,10 +170,21 @@ try
 finally
 {
     if (hostStarted && !host.HasExited) { host.Kill(); await host.WaitForExitAsync(); }
-    // Git objects can be read-only on Windows. Only remove this test's freshly created directory.
-    foreach (var file in Directory.EnumerateFiles(sandbox, "*", SearchOption.AllDirectories))
-        File.SetAttributes(file, FileAttributes.Normal);
-    Directory.Delete(sandbox, true);
+    // Windows can keep Serena log handles open briefly after the manager's job is closed.
+    for (var attempt = 0; ; attempt++)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(sandbox, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, FileAttributes.Normal);
+            Directory.Delete(sandbox, true);
+            break;
+        }
+        catch (IOException ex) when (OperatingSystem.IsWindows() && (ex.HResult & 0xffff) == 32 && attempt < 20)
+        {
+            await Task.Delay(100);
+        }
+    }
 }
 
 static void Check(bool condition, string message)
@@ -173,14 +194,11 @@ static void Check(bool condition, string message)
 
 static async Task CheckColdStdio(string binary, string sandbox, string project, string token, CancellationToken ct)
 {
-    using var reservation = new TcpListener(IPAddress.Loopback, 0);
-    reservation.Start();
-    var port = ((IPEndPoint)reservation.LocalEndpoint).Port;
-    reservation.Stop();
+    var port = ReservePort();
     var url = $"http://127.0.0.1:{port}";
     Task<McpClient> Connect() => McpClient.CreateAsync(new StdioClientTransport(new()
     {
-        Command = binary, WorkingDirectory = sandbox, Arguments = ["stdio", "--urls", url],
+        Command = binary, WorkingDirectory = sandbox, Arguments = ["mcp", "--urls", url],
         EnvironmentVariables = new Dictionary<string, string?>
         {
             ["SERENA_HOME"] = Path.Combine(sandbox, "serena-home"), ["SerenaPool__Token"] = token,
@@ -211,6 +229,13 @@ static async Task CheckColdStdio(string binary, string sandbox, string project, 
         await Task.Delay(200, wait.Token);
     }
     Console.WriteLine("Passed: simultaneous cold stdio startup, shared leases, EOF and automatic host shutdown.");
+}
+
+static int ReservePort()
+{
+    using var reservation = new TcpListener(IPAddress.Loopback, 0);
+    reservation.Start();
+    return ((IPEndPoint)reservation.LocalEndpoint).Port;
 }
 
 static async Task Git(params string[] args)

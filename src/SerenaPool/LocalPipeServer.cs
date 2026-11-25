@@ -7,7 +7,7 @@ using ModelContextProtocol.Server;
 namespace SerenaPool;
 
 internal sealed class LocalPipeServer(IServer web, IHostApplicationLifetime lifetime, IServiceProvider services,
-    IOptions<McpServerOptions> options, InstancePool pool, ILogger<LocalPipeServer> log, bool automatic) : BackgroundService
+    IOptions<McpServerOptions> options, InstancePool pool, ILogger<LocalPipeServer> log) : BackgroundService
 {
     private int connections;
 
@@ -23,7 +23,7 @@ internal sealed class LocalPipeServer(IServer web, IHostApplicationLifetime life
             var pipe = new NamedPipeServerStream(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
                 PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop);
-            if (automatic) timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
             try { await pipe.WaitForConnectionAsync(timeout.Token); }
             catch (OperationCanceledException) when (!stop.IsCancellationRequested)
             {

@@ -8,17 +8,28 @@ internal sealed partial class PoolSettings
     public TimeSpan IdleTimeout { get; init; } = TimeSpan.FromMinutes(10);
     public TimeSpan LeaseTimeout { get; init; } = TimeSpan.FromMinutes(60);
     public static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-    public string Executable { get; init; } = OperatingSystem.IsWindows() ? "serena.exe" : "serena";
+    public const string DefaultAddress = "http://127.0.0.1:32980";
+    public const string DefaultEnvironmentValue = "__SERENA_POOL_USE_DEFAULT__";
+    public string? Executable { get; init; }
 
     public string ResolveExecutable()
     {
-        var candidates = Path.IsPathFullyQualified(Executable)
-            ? [Executable]
-            : (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
-                .Where(Path.IsPathFullyQualified).Select(dir => Path.Combine(dir.Trim('"'), Executable));
-        return candidates.FirstOrDefault(File.Exists)
-            ?? throw new FileNotFoundException($"找不到 Serena 启动程序 {Executable}，请设置 Pool:Executable 为绝对路径。");
+        var fileName = OperatingSystem.IsWindows() ? "serena.exe" : "serena";
+        if (Executable is not { Length: > 0 } or DefaultEnvironmentValue)
+            return FindOnPath(fileName) ?? throw new FileNotFoundException(
+                $"PATH 中找不到 {fileName}。请设置 Pool__Executable 为可执行文件或其目录的绝对路径。");
+
+        if (!Path.IsPathFullyQualified(Executable))
+            throw new ArgumentException("Pool__Executable 必须为可执行文件或其目录的绝对路径。");
+        var path = Directory.Exists(Executable) ? Path.Combine(Executable, fileName) : Executable;
+        return File.Exists(path) ? Path.GetFullPath(path) :
+            throw new FileNotFoundException($"Pool__Executable 指定的 Serena 启动程序不存在：{path}。");
     }
+
+    public static string? FindOnPath(string fileName) =>
+        (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
+            .Select(dir => dir.Trim('"')).Where(Path.IsPathFullyQualified)
+            .Select(dir => Path.GetFullPath(Path.Combine(dir, fileName))).FirstOrDefault(File.Exists);
 
     public static string ResolveWorkdir(string path)
     {

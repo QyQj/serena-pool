@@ -6,11 +6,54 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <NoDefaultLaunchSettingsFile>True</NoDefaultLaunchSettingsFile>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>true</IsPackable>
+    <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>serena-pool</ToolCommandName>
+    <PackageId>SerenaPool</PackageId>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <VersionSuffix>preview.1</VersionSuffix>
+    <Version Condition="'$(PackageVersion)' != ''">$(PackageVersion)</Version>
+    <PackageType>DotnetTool;McpServer</PackageType>
+    <Authors>Ejy Chien</Authors>
+    <Copyright>Copyright (c) 2026 Ejy Chien</Copyright>
+    <Description>Share local Serena REPL workers across MCP clients, with stdio and HTTP transports and a web dashboard.</Description>
+    <PackageTags>serena;mcp;dotnet-tool;language-server</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageProjectUrl>https://github.com/QyQj/serena-pool</PackageProjectUrl>
+    <RepositoryUrl>$(PackageProjectUrl)</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <DebugType>embedded</DebugType>
+    <PackageReleaseNotes>Initial preview. Shares Serena workers across local MCP clients and includes setup for supported clients.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Web/*" />
+    <EmbeddedResource Include="../../skills/serena-pool/SKILL.md" LogicalName="SerenaPool.Skill" />
+    <None Include="../../skills/serena-pool/SKILL.md" Pack="true" PackagePath="skills/serena-pool/" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../assets/icon.png" Pack="true" PackagePath="/" />
+    <Content Update="appsettings*.json" Pack="false" CopyToPublishDirectory="PreserveNewest" />
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>PackageVersion</_Parameter1>
+      <_Parameter2>$(Version)</_Parameter2>
+    </AssemblyAttribute>
+    <PackageReference Include="Tomlyn" Version="0.19.0" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.4.0" />
   </ItemGroup>
+
+  <Target Name="GenerateMcpMetadata" BeforeTargets="_GetPackageFiles">
+    <PropertyGroup>
+      <McpMetadata>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/.mcp/server.json').Replace('__PACKAGE_VERSION__', '$(PackageVersion)'))</McpMetadata>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)server.json" Lines="$(McpMetadata)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <None Include="$(IntermediateOutputPath)server.json" Pack="true" PackagePath=".mcp/server.json" />
+    </ItemGroup>
+  </Target>
 
 </Project>
