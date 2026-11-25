@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.Authorization;
 
 namespace SerenaPool;
 
@@ -56,7 +57,8 @@ internal sealed class LocalAccess(string secret)
         context.Response.Headers.CacheControl = "no-store";
         context.Response.Headers.XContentTypeOptions = "nosniff";
         context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
-        if (request.Path.StartsWithSegments("/api") || request.Path.StartsWithSegments("/mcp"))
+        if (request.Path.StartsWithSegments("/mcp") ||
+            (request.Path.StartsWithSegments("/api") && context.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() is null))
         {
             var header = request.Headers.Authorization.ToString();
             if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ||

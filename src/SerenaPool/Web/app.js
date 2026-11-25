@@ -1,9 +1,9 @@
 "use strict";
 const byId = id => document.getElementById(id);
-const login = byId("login"), dashboard = byId("dashboard"), rows = byId("rows"), detail = byId("detail");
+const rows = byId("rows"), detail = byId("detail"), connection = byId("connection"), notice = byId("notice");
 const states = {starting: "启动中", active: "使用中", idle: "空闲", failed: "已失效"};
 const clock = iso => new Date(iso).toLocaleTimeString("zh-CN", {hour12: false});
-let token = "", workers = [], selected = null, syncing = false, version = "";
+let workers = [], selected = null, syncing = false, version = "";
 
 function el(tag, text, className) {
   const node = document.createElement(tag);
@@ -20,23 +20,8 @@ function action(label, key, fn) {
   return button;
 }
 
-function disconnect() {
-  token = "";
-  workers = [];
-  version = "";
-  selected = null;
-  dashboard.hidden = true;
-  login.hidden = false;
-  rows.replaceChildren();
-  detail.replaceChildren();
-  byId("connection").textContent = "本机管理台";
-  byId("notice").textContent = "";
-  byId("token").focus();
-}
-
 async function api(path, method = "GET") {
-  const res = await fetch(path, {method, headers: {Authorization: "Bearer " + token}, cache: "no-store"});
-  if (res.status === 401) throw new Error("访问令牌无效，请重新连接。");
+  const res = await fetch(path, {method, cache: "no-store"});
   if (res.status === 409) throw new Error("实例正在使用，无法回收。");
   if (!res.ok) throw new Error("请求失败（HTTP " + res.status + "）");
   return res;
@@ -100,42 +85,31 @@ function render() {
 }
 
 async function refresh() {
-  if (!token || syncing) return;
+  if (syncing) return;
   syncing = true;
-  const key = token;
   try {
     const data = await (await api("/api/workers")).json();
-    if (token !== key) return;
     const next = JSON.stringify(data);
     if (next !== version) { workers = data; version = next; render(); }
-    login.hidden = true;
-    dashboard.hidden = false;
-    byId("token").value = "";
-    byId("connection").textContent = "本机已连接";
+    if (connection.textContent !== "本机已连接") notice.textContent = "";
+    connection.textContent = "本机已连接";
     byId("updated").textContent = clock(Date.now());
-    byId("notice").textContent = "";
   } catch (err) {
-    if (token === key) {
-      byId("connection").textContent = "连接失败";
-      byId("notice").textContent = err.message;
-      if (!login.hidden) token = "";
-    }
+    connection.textContent = "连接失败";
+    notice.textContent = err.message;
   } finally { syncing = false; }
 }
 
 async function change(path, message) {
   if (!window.confirm(message)) return;
-  try { await api(path, "DELETE"); await refresh(); }
-  catch (err) { byId("notice").textContent = err.message; }
+  try {
+    await api(path, "DELETE");
+    notice.textContent = "";
+    await refresh();
+  } catch (err) { notice.textContent = err.message; }
 }
 
-byId("login-form").addEventListener("submit", event => {
-  event.preventDefault();
-  if (syncing) return;
-  token = byId("token").value.trim();
-  if (token) refresh();
-});
-byId("logout").addEventListener("click", disconnect);
 byId("refresh").addEventListener("click", refresh);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
-setInterval(() => { if (!document.hidden && !dashboard.hidden) refresh(); }, 2500);
+setInterval(() => { if (!document.hidden) refresh(); }, 2500);
+refresh();

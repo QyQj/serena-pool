@@ -41,6 +41,7 @@ try
 
     hostStarted = host.Start();
     using var http = new HttpClient { BaseAddress = url };
+    using var dashboard = new HttpClient { BaseAddress = url };
     using (var ready = CancellationTokenSource.CreateLinkedTokenSource(ct))
     {
         ready.CancelAfter(TimeSpan.FromSeconds(15));
@@ -59,9 +60,10 @@ try
             }
         }
     }
-    using var denied = await http.GetAsync("/api/workers", ct);
-    Check(denied.StatusCode == HttpStatusCode.Unauthorized, "API requires token");
-    http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secret);
+    Check(JsonNode.Parse(await dashboard.GetStringAsync("/api/workers", ct)) is JsonArray { Count: 0 },
+        "dashboard status is available without a token");
+    using var deniedMcp = await dashboard.GetAsync("/mcp", ct);
+    Check(deniedMcp.StatusCode == HttpStatusCode.Unauthorized, "HTTP MCP requires token");
     using var foreign = new HttpRequestMessage(HttpMethod.Get, "/api/workers");
     foreign.Headers.Add("Origin", "http://example.org");
     using var blocked = await http.SendAsync(foreign, ct);
@@ -69,6 +71,7 @@ try
     foreach (var path in new[] { "/", "/app.js", "/app.css" })
         Check((await http.GetStringAsync(path, ct)).Length > 0, $"embedded asset {path}");
 
+    http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secret);
     var transport = new HttpClientTransport(new() { Endpoint = new Uri(url, "/mcp"), TransportMode = HttpTransportMode.StreamableHttp }, http);
     await using var client = await McpClient.CreateAsync(transport, cancellationToken: ct);
     var tools = await client.ListToolsAsync(cancellationToken: ct);
@@ -92,7 +95,7 @@ try
         return JsonNode.Parse(Text(result))!["instance_id"]!.GetValue<string>();
     }
     Task<CallToolResult> Call(string id, string code) => Tool("call", ("instance_id", id), ("code", code));
-    async Task<JsonArray> Snapshot() => JsonNode.Parse(await http.GetStringAsync("/api/workers", ct))!.AsArray();
+    async Task<JsonArray> Snapshot() => JsonNode.Parse(await dashboard.GetStringAsync("/api/workers", ct))!.AsArray();
     async Task WaitUntil(Func<Task<bool>> predicate)
     {
         var watch = Stopwatch.StartNew();
@@ -136,19 +139,27 @@ try
     var warm = await Acquire(primary);
     Check((await Snapshot()).Any(w => (int)w!["pid"]! == (int)main["pid"]!), "warm worker retained");
     var leaseNumber = (long)(await Snapshot()).Single(w => (string?)w!["workdir"] == primary)!["leases"]![0]!["number"]!;
-    using var released = await http.DeleteAsync("/api/leases/" + leaseNumber, ct);
-    Check(released.IsSuccessStatusCode && (await Call(warm, "1")).IsError == true, "dashboard release");
+    var releasePath = "/api/leases/" + leaseNumber;
+    using var foreignRelease = new HttpRequestMessage(HttpMethod.Delete, releasePath);
+    foreignRelease.Headers.Add("Origin", "http://example.org");
+    using var blockedRelease = await dashboard.SendAsync(foreignRelease, ct);
+    Check(blockedRelease.StatusCode == HttpStatusCode.Forbidden, "foreign origin cannot release leases");
+    using var released = await dashboard.DeleteAsync(releasePath, ct);
+    Check(released.IsSuccessStatusCode && (await Call(warm, "1")).IsError == true, "dashboard release without a token");
     await WaitUntil(async () => (await Snapshot()).Count == 1);
     Console.WriteLine("Passed: queued cancellation, in-flight completion, warm reuse, admin release, timed recycling.");
 
     var doomed = await Acquire(primary);
     var interrupted = Call(doomed, "import time\ntime.sleep(30)\n'finished'");
     await WaitUntil(async () => (await Snapshot()).Any(w => (string?)w!["workdir"] == primary && (bool)w["running"]!));
-    using (var process = Process.GetProcessById((int)(await Snapshot()).Single(w => (string?)w!["workdir"] == primary)!["pid"]!))
+    var worker = (await Snapshot()).Single(w => (string?)w!["workdir"] == primary)!;
+    using (var process = Process.GetProcessById((int)worker["pid"]!))
         process.Kill();
     var unknown = await interrupted.WaitAsync(TimeSpan.FromSeconds(10), ct);
     Check(unknown.IsError == true && Text(unknown).Contains("执行结果未知"), "backend loss reports unknown outcome: " + Text(unknown));
     Check((await Call(doomed, "1")).IsError == true && Text(await Call(third, "17")).Contains("17"), "failed worker isolated");
+    using var recycled = await dashboard.DeleteAsync("/api/workers/" + (long)worker["number"]!, ct);
+    Check(recycled.StatusCode == HttpStatusCode.NoContent && (await Snapshot()).Count == 1, "dashboard recycling without a token");
     Console.WriteLine("Passed: worker death invalidated its leases and preserved the other worktree.");
 
     var backendPid = (int)(await Snapshot()).Single(w => (string?)w!["workdir"] == secondary)!["pid"]!;

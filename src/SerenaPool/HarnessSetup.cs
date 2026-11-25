@@ -186,7 +186,7 @@ internal static class HarnessSetup
         foreach (var url in urls)
             Console.WriteLine($"Web {url.TrimEnd('/')}/ · HTTP MCP {url.TrimEnd('/')}/mcp");
         if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SerenaPool__Token")))
-            Console.WriteLine($"默认凭证文件 {LocalAccess.TokenPath}（首次启动后生成）");
+            Console.WriteLine($"HTTP MCP 凭证文件 {LocalAccess.TokenPath}（首次启动后生成）");
     }
 
     private static bool SameUtf8File(SetupFiles.Snapshot file, string content) =>

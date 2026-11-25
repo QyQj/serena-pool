@@ -21,17 +21,17 @@ serena-pool setup codex
 
 客户端标识包括 `codex`、`claude-code`、`cursor`、`copilot`、`opencode`、`antigravity` 和 `gemini-cli`。可在 `setup` 后传入多个标识，也可以在交互式终端省略标识，从列表中选择。Claude Code 需要 PATH 上的 `claude` 命令。Copilot CLI 与 VS Code 原生 Copilot 共用配置。
 
-`setup` 会显示 MCP 注册位置、skill 路径及默认访问令牌的文件路径。配置完成后，在客户端开启新会话。
+`setup` 会显示 MCP 注册位置、skill 路径及 HTTP MCP 凭证文件路径。配置完成后，在客户端开启新会话。
 
 ## 连接与管理
 
 客户端首次连接时会启动本机管理进程。同一用户使用相同端口的客户端共用实例池。
 
 - **stdio**　手动配置客户端时，可将已安装的 `serena-pool` 设为启动命令，传入 `mcp` 参数。
-- **Web 管理页**　访问 [http://127.0.0.1:32980/](http://127.0.0.1:32980/)，输入访问令牌后可查看实例详情、释放遗留领用或回收空闲实例。
+- **Web 管理页**　访问 [http://127.0.0.1:32980/](http://127.0.0.1:32980/) 可直接查看实例和领用状态、释放遗留领用以及回收空闲实例。页面仅允许本机访问。
 - **HTTP MCP**　使用 Streamable HTTP 连接 `http://127.0.0.1:32980/mcp`，请求头带上 `Authorization: Bearer <令牌>`。
 
-默认令牌文件会在管理进程首次启动时创建。如需自定义端口，为每个 stdio 客户端的 `mcp` 命令传入相同的 `--urls http://127.0.0.1:端口`，并在 Web 和 HTTP MCP 地址中使用该端口。
+HTTP MCP 默认令牌文件在管理进程首次启动时创建。如需自定义端口，为每个 stdio 客户端的 `mcp` 命令传入相同的 `--urls http://127.0.0.1:端口`，并在 Web 和 HTTP MCP 地址中使用该端口。
 
 | MCP 工具 | 用法 |
 | --- | --- |
@@ -51,7 +51,7 @@ serena-pool setup codex
 | `Pool__Executable` | 在 PATH 查找 `serena.exe` 或 `serena` | 指定 Serena 程序或其所在目录的绝对路径。 |
 | `Pool__IdleTimeout` | `00:10:00` | 实例无领用和待处理调用后的保留时间。 |
 | `Pool__LeaseTimeout` | `01:00:00` | 无活动领用的保留时间，排队和执行期间暂停计时。 |
-| `SerenaPool__Token` | 首次启动时生成并保存在凭证文件中 | 为 Web 管理页及 HTTP MCP 指定自定义令牌。 |
+| `SerenaPool__Token` | 首次启动时生成并保存在凭证文件中 | 为 HTTP MCP 指定自定义令牌。 |
 
 如果客户端会过滤传给子进程的环境变量，请在客户端设置中允许需要传入的变量。Gemini CLI 使用自定义令牌时，需要在 `security.environmentVariableRedaction.allowed` 中允许 `SerenaPool__Token`。
 

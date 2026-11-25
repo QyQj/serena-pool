@@ -67,11 +67,11 @@ try
     await using var app = builder.Build();
     app.Use(LocalAccess.Load(builder.Configuration).Invoke);
     app.MapMcp("/mcp");
-    app.MapGet("/api/workers", (InstancePool pool) => pool.Snapshot());
+    app.MapGet("/api/workers", (InstancePool pool) => pool.Snapshot()).AllowAnonymous();
     app.MapDelete("/api/leases/{number:long}", (long number, InstancePool pool) =>
-        pool.ReleaseByNumber(number) ? Results.NoContent() : Results.NotFound());
+        pool.ReleaseByNumber(number) ? Results.NoContent() : Results.NotFound()).AllowAnonymous();
     app.MapDelete("/api/workers/{number:long}", async (long number, InstancePool pool) =>
-        await pool.RecycleAsync(number) ? Results.NoContent() : Results.Conflict("仅可回收空闲实例。"));
+        await pool.RecycleAsync(number) ? Results.NoContent() : Results.Conflict("仅可回收空闲实例。")).AllowAnonymous();
 
     foreach (var (route, asset, mime) in new[] { ("/", "index.html", "text/html; charset=utf-8"),
         ("/app.css", "app.css", "text/css"), ("/app.js", "app.js", "text/javascript") })
