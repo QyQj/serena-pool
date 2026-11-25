@@ -1,62 +1,193 @@
 # Serena Pool
 
-Serena Pool 让同一台电脑上的多个 MCP 客户端共用 Serena。它按项目目录启动 Serena 进程，为每次领用提供独立的 REPL 会话，并提供 Web 管理页查看实例状态。支持 Windows、Linux 和 macOS。
+**English** | [简体中文](https://github.com/QyQj/serena-pool/blob/main/README.zh-CN.md)
 
-## 安装与配置
+Serena Pool lets multiple local MCP clients and coding agents share [Serena](https://github.com/oraios/serena) processes on the same machine. It runs at most one Serena process per project or Git worktree directory, gives each caller an isolated Python REPL session, exposes both `stdio` and Streamable HTTP MCP transports, and includes a local Web dashboard for inspecting workers and leases. Supports Windows, Linux, and macOS.
 
-需要 [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) 或更新的 SDK、ASP.NET Core 10 运行时，以及支持 REPL 的 [Serena](https://github.com/oraios/serena)。.NET 10 SDK 已包含所需运行时。请让 MCP 客户端能从 PATH 找到 Serena，或设置 `Pool__Executable` 指向 Serena 的绝对路径。
+## Features
 
-通过 [NuGet](https://www.nuget.org/packages/SerenaPool) 运行预览版。以下命令会为 Codex 注册 MCP 服务及配套 skill。
+- **One worker per checkout / worktree**: Resolves `workdir` to its canonical physical path (including symlinks and junctions), so clients targeting the same repository reuse one warm Serena and language server process while separate Git worktrees run concurrently.
+- **Isolated REPL sessions (`leases`)**: Every `acquire(workdir)` opens a separate Serena REPL session with a private `instance_id`, keeping Python variables isolated per agent without duplicating language servers.
+- **Serialized per-worker execution**: Calls targeting the same directory are queued and executed sequentially through a per-worker gate, preventing concurrent REPL or LSP state collisions.
+- **Shared `stdio` & Streamable HTTP pool**: Clients running `serena-pool mcp` communicate over a user- and port-scoped named pipe bridge that starts a single detached background manager on first connection and shares it across clients.
+- **One-command setup for 7 clients**: `serena-pool setup` registers the `serena-pool` MCP server and installs the companion `serena-pool` skill with pre-write conflict checks and atomic rollback.
+- **Token-free local Web dashboard**: Monitor worker status, PIDs, queues, errors, and leases at `http://127.0.0.1:32980/`, release stale leases, and recycle idle workers.
+- **Process-tree cleanup**: Contains spawned Serena and language server processes in a Windows Job Object (`KILL_ON_JOB_CLOSE`) on Windows or a dedicated POSIX process group with a parent-watching launcher on Linux and macOS.
+
+## How It Works
+
+```text
+  MCP Client A (stdio) ─┐
+  MCP Client B (stdio) ─┼─► Named Pipe Bridge ─┐
+  HTTP MCP (/mcp + Bearer token) ──────────────┼─► Shared Background Host ──► Worker 1 (/repo-main) ──► LSP
+  Web Dashboard (http://127.0.0.1:32980/) ─────┘     (--background-serve) └─► Worker 2 (/repo-wt)   ──► LSP
+```
+
+1. **On-demand background host**: The first `serena-pool mcp` client connects to the user-scoped named pipe (`serena-pool-<user>-<port>`). If no host is listening, it launches a detached `--background-serve` ASP.NET Core process; concurrent cold starts elect a single host on the fixed loopback port.
+2. **Per-directory workers**: When `acquire(workdir)` runs, the pool starts a Serena worker (`serena start-mcp-server --transport stdio --project <workdir> --context ide --agent-interface repl --add-mode no-memories --enable-web-dashboard false --enable-gui-log-window false`) if one is not already active for that canonical directory, then opens a fresh REPL session.
+3. **Failure isolation**: If a Serena worker exits unexpectedly or disconnects mid-call, only that worker transitions to `failed` and invalidates its leases; any in-flight call fails with an unknown-outcome error so the caller can inspect state before retrying, while workers for other directories stay alive.
+4. **Automatic recycling & shutdown**: Inactive leases expire after `Pool__LeaseTimeout` (paused while calls are queued or executing). Idle workers with zero leases and zero pending calls shut down after `Pool__IdleTimeout`. Once all `stdio` clients disconnect and all workers are recycled, the auto-started background host exits cleanly (pipe idle check runs every 15 seconds).
+
+## Prerequisites
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) or newer (includes the ASP.NET Core 10 runtime).
+- [Serena](https://github.com/oraios/serena) with REPL interface support (`--agent-interface repl`, exposing `initial_instructions` and `serena_repl`).
+- Make sure `serena` (`serena.exe` on Windows) is available on `PATH`, or set `Pool__Executable` to its absolute path or containing directory.
+
+## Installation & Quick Setup
+
+Run the preview package from [NuGet](https://www.nuget.org/packages/SerenaPool) directly with `dnx` or `dotnet tool exec` (the example below configures Codex):
 
 ```sh
 dnx SerenaPool --prerelease -- setup codex
 ```
 
-也可以用 `dotnet tool exec SerenaPool --prerelease -- setup codex`。安装全局工具后，可以直接在终端运行 `serena-pool` 命令。
+Or with `dotnet tool exec`:
+
+```sh
+dotnet tool exec SerenaPool --prerelease -- setup codex
+```
+
+You can also install it as a global .NET tool and run `serena-pool` directly:
 
 ```sh
 dotnet tool install --global SerenaPool --prerelease
 serena-pool setup codex
 ```
 
-客户端标识包括 `codex`、`claude-code`、`cursor`、`copilot`、`opencode`、`antigravity` 和 `gemini-cli`。可在 `setup` 后传入多个标识，也可以在交互式终端省略标识，从列表中选择。Claude Code 需要 PATH 上的 `claude` 命令。Copilot CLI 与 VS Code 原生 Copilot 共用配置。
+> [!NOTE]
+> When running `dotnet tool exec` interactively on .NET 11 or newer SDKs, pass `--yes` before `--` to skip the confirmation prompt. Inside generated MCP client configs, `serena-pool setup` automatically includes `--yes` when it detects .NET 11+.
 
-`setup` 会显示 MCP 注册位置、skill 路径及 HTTP MCP 凭证文件路径。配置完成后，在客户端开启新会话。
+### Supported Clients (`setup`)
 
-## 连接与管理
+Pass one or more client IDs after `setup` (e.g., `serena-pool setup codex cursor`), or omit arguments in an interactive terminal to choose from a detected list:
 
-客户端首次连接时会启动本机管理进程。同一用户使用相同端口的客户端共用实例池。
+| Client ID | MCP Registration Target | Skill Path | Notes |
+| --- | --- | --- | --- |
+| `codex` | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`) | `~/.agents/skills/serena-pool/SKILL.md` | Writes `[mcp_servers.serena-pool]` and forwards `Pool__Executable` & `SerenaPool__Token` via `env_vars`. |
+| `claude-code` | `$CLAUDE_CONFIG_DIR/.claude.json` (default `~/.claude.json`) | `$CLAUDE_CONFIG_DIR/skills/serena-pool/SKILL.md` (default `~/.claude/skills/serena-pool/SKILL.md`) | Runs `claude mcp add --transport stdio --scope user`; requires native `claude` on `PATH`. |
+| `cursor` | `~/.cursor/mcp.json` | `~/.agents/skills/serena-pool/SKILL.md` | Writes `mcpServers.serena-pool` (`type: "stdio"`). |
+| `copilot` | `$COPILOT_HOME/mcp-config.json` (default `~/.copilot/mcp-config.json`) | `~/.agents/skills/serena-pool/SKILL.md` | Shared by Copilot CLI and VS Code native Copilot; forwards env vars via `${VAR:-...}` references. |
+| `opencode` | `$OPENCODE_CONFIG`, or `$XDG_CONFIG_HOME/opencode/opencode.json[c]` (default `~/.config/opencode/opencode.json`) | `~/.agents/skills/serena-pool/SKILL.md` | Writes `mcp.serena-pool` with `type: "local"` and a `command` array. |
+| `antigravity` | `~/.gemini/config/mcp_config.json` | `~/.gemini/config/skills/serena-pool/SKILL.md` | Writes `mcpServers.serena-pool`. |
+| `gemini-cli` | `$GEMINI_CLI_HOME/.gemini/settings.json` (default `~/.gemini/settings.json`) | `~/.agents/skills/serena-pool/SKILL.md` | Writes `mcpServers.serena-pool`. |
 
-### Web 管理页
+`setup` checks all selected targets before modifying any files:
+- Deduplicates shared skill paths (for example, `codex`, `cursor`, `copilot`, `opencode`, and `gemini-cli` share `~/.agents/skills/serena-pool/SKILL.md`) and tracks managed state in `~/.serena-pool/setup.json`.
+- Preserves existing unrelated MCP entries and any custom `--urls` flags already configured for `serena-pool`.
+- Aborts before writing if it finds a conflicting external `serena-pool` entry, a literal token hardcoded inside client config, a locally edited skill file, or another registered client sharing the same skill path on a different `SerenaPool` version (in which case, upgrade those clients together).
+- Rolls back atomically if any file write fails mid-operation.
 
-管理页仅在本机开放，地址为 [http://127.0.0.1:32980/](http://127.0.0.1:32980/)。查看实例和领用状态、释放领用以及回收空闲实例均无需输入令牌。释放和回收前会弹出操作确认。
+After setup finishes, it prints each registered config path, skill path, Web URL, HTTP MCP URL, and the default token file path. Start a new session in your client to load the MCP server and skill.
 
-### MCP 连接
+## Connecting & Managing
 
-- **stdio**　手动配置客户端时，可将已安装的 `serena-pool` 设为启动命令，传入 `mcp` 参数。
-- **HTTP MCP**　使用 Streamable HTTP 连接 `http://127.0.0.1:32980/mcp`，请求头带上 `Authorization: Bearer <令牌>`。
+### CLI Commands
 
-HTTP MCP 默认令牌文件在管理进程首次启动时创建。如需自定义端口，为每个 stdio 客户端的 `mcp` 命令传入相同的 `--urls http://127.0.0.1:端口`，并在 Web 和 HTTP MCP 地址中使用该端口。
+```sh
+serena-pool mcp [--urls http://127.0.0.1:32980]
+serena-pool setup [harness ...]
+serena-pool --help
+```
 
-| MCP 工具 | 用法 |
+### MCP Transports
+
+- **stdio**: For manual client configuration, set the command to `serena-pool` (after global install) with `["mcp"]`, or use the pinned `dotnet tool exec SerenaPool@<version> -- mcp` command generated by `setup`:
+
+  ```json
+  {
+    "mcpServers": {
+      "serena-pool": {
+        "command": "serena-pool",
+        "args": ["mcp"]
+      }
+    }
+  }
+  ```
+
+- **Streamable HTTP**: Connect to `http://127.0.0.1:32980/mcp` with the header `Authorization: Bearer <token>`.
+  - Unless `SerenaPool__Token` is set in the environment, the host generates a random 64-character hex token on first startup and stores it in:
+    - Windows: `%LOCALAPPDATA%\SerenaPool\access-token`
+    - Linux: `~/.local/share/SerenaPool/access-token` (or `$XDG_DATA_HOME/SerenaPool/access-token`)
+    - macOS: `~/Library/Application Support/SerenaPool/access-token`
+
+- **Custom ports**: Pass the same `--urls http://127.0.0.1:<port>` flag to `serena-pool mcp` for every stdio client that should share a pool, and use that port for the Web dashboard and `/mcp` endpoint. `--urls` must be a loopback `http` or `https` URL with a fixed non-zero port and no path, userinfo, query string, or fragment.
+
+### MCP Tools & REPL Workflow
+
+| MCP Tool | Description |
 | --- | --- |
-| `list()` | 查看实例、领用和排队状态。 |
-| `acquire(workdir)` | 传入项目的绝对路径，返回使用说明和会话专属的 `instance_id`。 |
-| `call(instance_id, code)` | 在领用的 Serena REPL 会话中运行代码，例如 `s.info("lsp.find_symbol")`。 |
-| `release(instance_id)` | 释放会话并取消属于该会话的排队调用。已开始的调用会继续执行。 |
+| `list()` | Read-only snapshot of workers (`number`, `workdir`, `pid`, `state`, `started`, `recycleAt`, `running`, `queued`, `lastError`) and public lease numbers (never exposes private `instance_id`s). |
+| `acquire(workdir)` | Takes an existing absolute project or worktree path, ensures a worker is running for that directory, and returns `{ instance_id, workdir, instructions }`. Keep `instance_id` private per agent/session. |
+| `call(instance_id, code)` | Runs Python code inside the acquired Serena REPL session. Variables persist within the lease. Use `s.lsp` for symbol operations and `s.info(...)` for API signatures. |
+| `release(instance_id)` | Releases the lease and cancels any queued calls belonging to it (an already-executing call finishes). Returns `true` if released, or `false` if already gone. |
 
-同一目录的调用按顺序执行。若实例或会话失效，客户端需要重新领用。最后一个 stdio 客户端断开且实例全部回收后，自动启动的管理进程会空闲退出。
+Example REPL calls inside `call(instance_id, code)`:
 
-## 环境变量
+```python
+# Inspect available Serena LSP signatures
+s.info("lsp.find_symbol", "lsp.find_referencing_symbols")
+```
 
-在启动 MCP 客户端前设置环境变量，Serena Pool 会在管理进程启动时读取。
+```python
+# Query symbols in the acquired checkout (variables persist across call() invocations)
+symbols = s.lsp.find_symbol(
+    "InstancePool",
+    relative_path="src/SerenaPool/InstancePool.cs",
+    include_body=False,
+)
+symbols
+```
 
-| 环境变量 | 默认值 | 用法 |
+If a lease expires or its worker restarts, call `acquire(workdir)` again and read the returned `instructions` before making further calls (previous REPL variables are lost with the old session).
+
+### Web Dashboard
+
+Open [http://127.0.0.1:32980/](http://127.0.0.1:32980/) in your browser (replace the port if using `--urls`).
+
+- **Local-only access**: Only loopback connections, `127.0.0.1`/`localhost` hosts, and matching `Origin` headers are accepted; non-local or cross-origin requests receive `403 Forbidden`.
+- **No token required**: Viewing worker/lease status, releasing leases (`DELETE /api/leases/{number}`), and recycling idle or failed workers (`DELETE /api/workers/{number}`) require no token and prompt for confirmation before acting.
+- **Live updates**: Polls `/api/workers` every 2.5 seconds while the page is visible. Closing the browser tab does not stop the pool host.
+
+## Environment Variables
+
+Set environment variables before launching your MCP client so the shared background host reads them at startup:
+
+| Environment Variable | Default | Description |
 | --- | --- | --- |
-| `Pool__Executable` | 在 PATH 查找 `serena.exe` 或 `serena` | 指定 Serena 程序或其所在目录的绝对路径。 |
-| `Pool__IdleTimeout` | `00:10:00` | 实例无领用和待处理调用后的保留时间。 |
-| `Pool__LeaseTimeout` | `01:00:00` | 无活动领用的保留时间，排队和执行期间暂停计时。 |
+| `Pool__Executable` | Searches `PATH` for `serena.exe` (Windows) or `serena` (Linux/macOS) | Absolute path to the Serena executable or its containing directory. |
+| `Pool__IdleTimeout` | `00:10:00` | How long a worker stays alive after all leases are released and no calls are running or queued (must be `> 0`). |
+| `Pool__LeaseTimeout` | `01:00:00` | Inactivity timeout for an open lease; timer pauses while calls are queued or executing (must be `> 0`). |
+| `SerenaPool__Token` | Auto-generated token file in `LocalApplicationData` | Custom Bearer token for HTTP MCP (`/mcp`). Set in the environment rather than hardcoding into client config files. |
 
-## 许可证
+If your MCP client filters environment variables passed to child processes, allow the variables you rely on in the client's settings. In Gemini CLI, using a custom `SerenaPool__Token` requires adding `"SerenaPool__Token"` to `security.environmentVariableRedaction.allowed`.
+
+## Building, Testing & Packaging from Source
+
+Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (see `global.json`). Running the smoke test also requires `git` and a working `serena` executable on `PATH`.
+
+```sh
+# Build the solution
+dotnet build SerenaPool.slnx -c Release
+
+# Pack the NuGet tool package (outputs to src/SerenaPool/bin/Release)
+dotnet pack src/SerenaPool -c Release
+
+# Verify the locally packed tool
+dotnet tool exec SerenaPool@0.1.0-preview.2 --source src/SerenaPool/bin/Release -- --help
+
+# Run the end-to-end smoke test against a writable temporary directory
+dotnet run --project tests/SerenaPool.Smoke -c Release -- "<absolute-path-to-writable-temp-dir>"
+```
+
+The smoke test creates temporary Git worktrees and an isolated `SERENA_HOME` inside the directory you pass, then verifies real Serena language servers, `stdio` and Streamable HTTP transports, lease isolation, queued call cancellation, dashboard APIs, worker crash isolation, process-tree cleanup, and automatic idle shutdown.
+
+To publish a framework-dependent single-file executable (replace `win-x64` with `linux-x64`, `linux-arm64`, `osx-x64`, or `osx-arm64`):
+
+```sh
+dotnet publish src/SerenaPool -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true
+```
+
+## License
 
 [MIT](https://github.com/QyQj/serena-pool/blob/main/LICENSE)
