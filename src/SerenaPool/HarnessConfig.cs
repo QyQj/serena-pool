@@ -162,7 +162,8 @@ internal sealed class HarnessConfig
 
             foreach (var (key, value) in updates)
             {
-                var parsed = Toml.Parse(Toml.FromModel(new TomlTable { [key] = value }));
+                var parsed = Toml.Parse(value is TomlTable environment ?
+                    FormatInlineEnvironment(key, environment) : Toml.FromModel(new TomlTable { [key] = value }));
                 var replacement = parsed.KeyValues.GetChild(0)!;
                 var existing = syntax.Items.FirstOrDefault(item => item.Key?.DotKeys.ChildrenCount == 0 && KeyText(item.Key.Key) == key);
                 if (existing is null)
@@ -182,6 +183,11 @@ internal sealed class HarnessConfig
                     {
                         CopyTokenTrivia(oldArray.OpenBracket, newArray.OpenBracket);
                         CopyTokenTrivia(oldArray.CloseBracket, newArray.CloseBracket);
+                    }
+                    if (existing.Value is InlineTableSyntax oldInline && updated is InlineTableSyntax newInline)
+                    {
+                        CopyTokenTrivia(oldInline.OpenBrace, newInline.OpenBrace);
+                        CopyTokenTrivia(oldInline.CloseBrace, newInline.CloseBrace);
                     }
                     existing.Value = updated;
                 }
@@ -206,6 +212,15 @@ internal sealed class HarnessConfig
         servers[Server] = target;
         model[section] = servers;
         return Toml.FromModel(model).ReplaceLineEndings(source.Contains("\r\n") ? "\r\n" : "\n");
+    }
+
+    private static string FormatInlineEnvironment(string key, TomlTable environment)
+    {
+        var serialized = Toml.Parse(Toml.FromModel(environment));
+        if (serialized.KeyValues.ChildrenCount != environment.Count)
+            throw new InvalidDataException("Codex MCP env 中的环境变量必须为键值对。");
+        var fields = string.Join(", ", serialized.KeyValues.Select(item => item.ToString().Trim()));
+        return $"{key} = {{ {fields} }}\r\n";
     }
 
     public bool HasConfiguredExecutable(string executable)

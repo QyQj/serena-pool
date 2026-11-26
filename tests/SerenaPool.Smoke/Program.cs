@@ -28,6 +28,7 @@ using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(4));
 var ct = deadline.Token;
 try
 {
+    await CheckInlineSetup(binary, sandbox, ct);
     Directory.CreateDirectory(primary);
     await Git("init", "-q", primary);
     await File.WriteAllTextAsync(Path.Combine(primary, "sample.py"), "class Marker:\r\n    branch = 'primary'\r\n", ct);
@@ -85,6 +86,9 @@ try
     await using var pipeClient = await McpClient.CreateAsync(stdio, cancellationToken: ct);
     var pipeTools = await pipeClient.ListToolsAsync(cancellationToken: ct);
     Check(pipeTools.Select(t => t.Name).Order().SequenceEqual(tools.Select(t => t.Name).Order()), "stdio tools");
+    string[] titles = ["SerenaPool Acquire", "SerenaPool Call", "SerenaPool List", "SerenaPool Release"];
+    Check(tools.Select(t => t.ProtocolTool.Title).Order().SequenceEqual(titles) &&
+        pipeTools.Select(t => t.ProtocolTool.Title).Order().SequenceEqual(titles), "HTTP and stdio tool titles");
 
     async Task<CallToolResult> Tool(string name, params (string, object?)[] arguments) =>
         await client.CallToolAsync(name, arguments.ToDictionary(pair => pair.Item1, pair => pair.Item2), cancellationToken: ct);
@@ -202,6 +206,37 @@ finally
 static void Check(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
+}
+
+static async Task CheckInlineSetup(string binary, string sandbox, CancellationToken ct)
+{
+    var home = Directory.CreateDirectory(Path.Combine(sandbox, "setup")).FullName;
+    var config = Path.Combine(home, "config.toml");
+    await File.WriteAllTextAsync(config, $$"""
+        [mcp_servers.serena-pool]
+        command = {{JsonValue.Create(binary)!.ToJsonString()}}
+        args = ["stdio", "--urls", "http://127.0.0.1:30741"]
+        env = { Pool__WebDashboard = "false" } # dashboard setting
+        """.ReplaceLineEndings("\r\n") + "\r\n", ct);
+
+    var start = new ProcessStartInfo(binary)
+    {
+        UseShellExecute = false, CreateNoWindow = true, ArgumentList = { "setup", "codex" },
+        RedirectStandardOutput = true, RedirectStandardError = true
+    };
+    foreach (var name in new[] { "HOME", "USERPROFILE", "CODEX_HOME", "COPILOT_HOME", "XDG_CONFIG_HOME", "GEMINI_CLI_HOME" })
+        start.Environment[name] = home;
+    start.Environment.Remove("OPENCODE_CONFIG");
+    using var setup = Process.Start(start)!;
+    var output = setup.StandardOutput.ReadToEndAsync(ct);
+    var errors = setup.StandardError.ReadToEndAsync(ct);
+    await setup.WaitForExitAsync(ct);
+    Check(setup.ExitCode == 0, $"setup upgrade: {await errors}");
+    await output;
+    var updated = await File.ReadAllTextAsync(config, ct);
+    Check(updated.Contains("SerenaPool@") && updated.Contains("30741") && updated.Contains("Pool__Executable") &&
+        updated.Contains("Pool__WebDashboard = \"false\"") && updated.Contains("# dashboard setting"),
+        "setup preserves inline Codex configuration");
 }
 
 static async Task CheckColdStdio(string binary, string sandbox, string project, CancellationToken ct)

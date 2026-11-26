@@ -64,6 +64,18 @@ serena-pool setup codex
 > [!NOTE]
 > When running `dotnet tool exec` interactively on .NET 11 or newer SDKs, pass `--yes` before `--` to skip the confirmation prompt. Inside generated MCP client configs, `serena-pool setup` automatically includes `--yes` when it detects .NET 11+.
 
+### Upgrading
+
+Run `setup` from the new package to update the pinned version in each configured client. For Codex:
+
+```sh
+dotnet tool exec SerenaPool@0.1.0-preview.4 -- setup codex
+```
+
+Include all installed clients that share the same skill directory in the same command, for example `setup codex cursor`. If you prefer using the global command, first run `dotnet tool update --global SerenaPool --version 0.1.0-preview.4`, then run `serena-pool setup codex`.
+
+Release active leases and close clients connected to the old shared pool. After the old background process exits, start a new client session. Updating the installed command alone does not change the pinned client configurations.
+
 ### Supported Clients (`setup`)
 
 Pass one or more client IDs after `setup` (e.g., `serena-pool setup codex cursor`), or omit arguments in an interactive terminal to choose from a detected list:
@@ -118,6 +130,8 @@ serena-pool --help
 - **Custom ports**: Pass the same `--urls http://127.0.0.1:<port>` flag to `serena-pool mcp` for every stdio client that should share a pool, and use that port for the Web dashboard and `/mcp` endpoint. `--urls` must be a loopback `http` or `https` URL with a fixed non-zero port and no path, userinfo, query string, or fragment.
 
 ### MCP Tools & REPL Workflow
+
+Clients that display MCP tool titles show names such as `SerenaPool Acquire`. The call identifiers are listed below.
 
 | MCP Tool | Description |
 | --- | --- |
@@ -181,7 +195,7 @@ dotnet build SerenaPool.slnx -c Release
 dotnet pack src/SerenaPool -c Release
 
 # Verify the locally packed tool
-dotnet tool exec SerenaPool@0.1.0-preview.3 --source src/SerenaPool/bin/Release -- --help
+dotnet tool exec SerenaPool@0.1.0-preview.4 --source src/SerenaPool/bin/Release -- --help
 
 # Run the end-to-end smoke test against a writable temporary directory
 dotnet run --project tests/SerenaPool.Smoke -c Release -- "<absolute-path-to-writable-temp-dir>"

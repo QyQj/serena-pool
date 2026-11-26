@@ -12,7 +12,7 @@
     <ToolCommandName>serena-pool</ToolCommandName>
     <PackageId>SerenaPool</PackageId>
     <VersionPrefix>0.1.0</VersionPrefix>
-    <VersionSuffix>preview.3</VersionSuffix>
+    <VersionSuffix>preview.4</VersionSuffix>
     <Version Condition="'$(PackageVersion)' != ''">$(PackageVersion)</Version>
     <PackageType>DotnetTool;McpServer</PackageType>
     <Authors>Ejy Chien</Authors>
@@ -27,7 +27,7 @@
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <DebugType>embedded</DebugType>
-    <PackageReleaseNotes>The local dashboard can be disabled independently of MCP. On Windows, it is available from the notification area.</PackageReleaseNotes>
+    <PackageReleaseNotes>MCP tool titles now include the SerenaPool prefix. Existing tool identifiers are unchanged.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>
