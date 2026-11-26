@@ -96,9 +96,10 @@ Pass one or more client IDs after `setup` (e.g., `serena-pool setup codex cursor
 - Aborts before writing if it finds a conflicting external `serena-pool` entry, a locally edited skill file, or another registered client sharing the same skill path on a different `SerenaPool` version (in which case, upgrade those clients together).
 - Runs the selected Serena executable to check REPL support before writing client files.
 - Writes the absolute Serena path as `Pool__Executable` in each MCP entry and removes legacy Serena Pool credential settings from existing managed entries.
+- Backs up an existing MCP configuration before modifying it. Backup filenames end in `.SerenaPool` and receive a numbered suffix before that extension if the name is taken.
 - Rolls back atomically if any file write fails mid-operation.
 
-After setup finishes, it prints each registered config path, skill path, dashboard URL (when enabled), HTTP MCP URL, and Serena executable path. Start a new session in your client to load the MCP server and skill.
+After setup finishes, it prints the package version, each registered config and skill path, the managed MCP settings written, any backup path, and the runtime addresses. Start a new session in your client to load the MCP server and skill.
 
 ## Connecting & Managing
 

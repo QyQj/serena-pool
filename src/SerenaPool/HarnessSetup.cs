@@ -137,6 +137,7 @@ internal static class HarnessSetup
         var defaultDotnet = FindDotnet();
         var sdkVersions = new Dictionary<(string, string), int>();
         var urls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var previews = new Dictionary<SetupFiles.Snapshot, string>();
         for (var i = 0; i < selected.Length; i++)
         {
             var target = selected[i];
@@ -165,7 +166,16 @@ internal static class HarnessSetup
                 var confirmed = generated.ReadLaunch();
                 if (confirmed.Command != dotnet || !confirmed.Args.SequenceEqual(desired) || !generated.HasConfiguredExecutable(executable))
                     throw new InvalidDataException($"无法生成 {target.Id} 的 MCP 注册。");
-                ConfigFile(target).Set(updated);
+                var file = ConfigFile(target);
+                file.Set(updated);
+                if (file.Changed)
+                {
+                    string[] managedArgs = ["tool", "exec", Package + Version, .. options.Where(option => option == "--yes"),
+                        "--", "mcp", .. mcpArgs];
+                    var managedClaude = claude is null ? null : new JsonObject { ["type"] = "stdio" };
+                    previews[file] = new HarnessConfig(null, target.Format)
+                        .SetLaunch(target.Format, dotnet, managedArgs, executable, managedClaude);
+                }
             }
             urls.Add(mcpArgs is ["--urls", var url] ? url : PoolSettings.DefaultAddress);
             if (!state.Registrations.Any(item => item.Id == target.Id && PoolSettings.PathComparer.Equals(item.Config, target.Config)))
@@ -181,13 +191,40 @@ internal static class HarnessSetup
         state.Registrations.Sort((left, right) => StringComparer.Ordinal.Compare(left.Id + left.Config, right.Id + right.Config));
         state.Skills.Sort((left, right) => StringComparer.Ordinal.Compare(left.Path, right.Path));
         stateFile.Set(JsonSerializer.Serialize(state, StateOptions).ReplaceLineEndings("\r\n") + "\r\n");
+        var backups = previews.Keys.ToDictionary(file => file, files.BackUp);
         files.Commit(stateFile);
 
+        Console.WriteLine($"Serena Pool {Version} 配置完成");
         foreach (var target in selected)
-            Console.WriteLine($"{target.Id} · MCP {target.Config}\n  Skill {target.Skill}");
+        {
+            Console.WriteLine();
+            Console.WriteLine(target.Id);
+            Console.WriteLine($"  MCP 配置    {target.Config}");
+            Console.WriteLine($"  Skill       {target.Skill}");
+            var file = ConfigFile(target);
+            if (!previews.TryGetValue(file, out var preview))
+            {
+                Console.WriteLine("  MCP 配置未变更");
+                continue;
+            }
+
+            if (backups[file] is { } backup)
+                Console.WriteLine($"  备份        {backup}");
+            Console.WriteLine("  写入内容（Serena Pool 管理项）");
+            foreach (var line in preview.Trim().Split('\n').Select(line => line.TrimEnd('\r')))
+                if (line != "[mcp_servers]")
+                    Console.WriteLine($"    {line}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("运行信息");
+        Console.WriteLine($"  Serena      {executable}");
         foreach (var url in urls)
-            Console.WriteLine($"Web（启用时） {url.TrimEnd('/')}/ · HTTP MCP {url.TrimEnd('/')}/mcp");
-        Console.WriteLine($"Serena {executable}");
+        {
+            var address = url.TrimEnd('/');
+            Console.WriteLine($"  Web 管理页  {address}/  （启用时）");
+            Console.WriteLine($"  HTTP MCP    {address}/mcp");
+        }
     }
 
     private static bool SameUtf8File(SetupFiles.Snapshot file, string content) =>

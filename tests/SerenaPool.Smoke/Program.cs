@@ -216,13 +216,17 @@ static async Task CheckInlineSetup(string binary, string sandbox, CancellationTo
         [mcp_servers.serena-pool]
         command = {{JsonValue.Create(binary)!.ToJsonString()}}
         args = ["stdio", "--urls", "http://127.0.0.1:30741"]
-        env = { Pool__WebDashboard = "false" } # dashboard setting
+        env = { Pool__WebDashboard = "false", OTHER = "private-setting" } # dashboard setting
         """.ReplaceLineEndings("\r\n") + "\r\n", ct);
+
+    var original = await File.ReadAllBytesAsync(config, ct);
+    var priorBackup = config + ".SerenaPool";
+    await File.WriteAllTextAsync(priorBackup, "existing backup", ct);
 
     var start = new ProcessStartInfo(binary)
     {
         UseShellExecute = false, CreateNoWindow = true, ArgumentList = { "setup", "codex" },
-        RedirectStandardOutput = true, RedirectStandardError = true
+        RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = System.Text.Encoding.UTF8
     };
     foreach (var name in new[] { "HOME", "USERPROFILE", "CODEX_HOME", "COPILOT_HOME", "XDG_CONFIG_HOME", "GEMINI_CLI_HOME" })
         start.Environment[name] = home;
@@ -232,7 +236,12 @@ static async Task CheckInlineSetup(string binary, string sandbox, CancellationTo
     var errors = setup.StandardError.ReadToEndAsync(ct);
     await setup.WaitForExitAsync(ct);
     Check(setup.ExitCode == 0, $"setup upgrade: {await errors}");
-    await output;
+    var summary = await output;
+    var backup = config + ".1.SerenaPool";
+    Check((await File.ReadAllBytesAsync(backup, ct)).SequenceEqual(original) &&
+        await File.ReadAllTextAsync(priorBackup, ct) == "existing backup", "setup preserves both backups");
+    Check(summary.Contains(backup) && summary.Contains("[mcp_servers.serena-pool]") &&
+        summary.Contains("Pool__Executable") && !summary.Contains("private-setting"), "setup shows only its managed configuration");
     var updated = await File.ReadAllTextAsync(config, ct);
     Check(updated.Contains("SerenaPool@") && updated.Contains("30741") && updated.Contains("Pool__Executable") &&
         updated.Contains("Pool__WebDashboard = \"false\"") && updated.Contains("# dashboard setting"),

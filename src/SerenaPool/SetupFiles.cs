@@ -1,3 +1,4 @@
+using System.Security.AccessControl;
 using System.Text;
 
 namespace SerenaPool;
@@ -7,6 +8,7 @@ internal sealed class SetupFiles
     private static readonly UTF8Encoding Utf8 = new(false, true);
     private static ReadOnlySpan<byte> Bom => [0xef, 0xbb, 0xbf];
     private readonly Dictionary<string, Snapshot> files = new(PoolSettings.PathComparer);
+    private readonly Dictionary<string, Snapshot> backups = new(PoolSettings.PathComparer);
 
     public Snapshot Read(string path)
     {
@@ -36,6 +38,22 @@ internal sealed class SetupFiles
         return Path.Combine([PoolSettings.ResolveWorkdir(directory), .. missing, Path.GetFileName(path)]);
     }
 
+    public string? BackUp(Snapshot snapshot)
+    {
+        if (!snapshot.Changed || snapshot.Original is not { } original)
+            return null;
+
+        var path = snapshot.Path + ".SerenaPool";
+        for (var number = 1; files.ContainsKey(path) || backups.ContainsKey(path) || Path.Exists(path) ||
+            new FileInfo(path).LinkTarget is not null; number++)
+            path = $"{snapshot.Path}.{number}.SerenaPool";
+
+        var backup = new Snapshot(path, null, snapshot.Path);
+        backup.Set(original);
+        backups.Add(path, backup);
+        return path;
+    }
+
     public void Commit(Snapshot state)
     {
         foreach (var snapshot in files.Values)
@@ -45,21 +63,27 @@ internal sealed class SetupFiles
         var created = new Stack<string>();
         try
         {
-            foreach (var snapshot in files.Values.Where(file => file.Changed && file != state)
+            foreach (var snapshot in backups.Values.Concat(files.Values.Where(file => file != state))
                 .Append(state).Where(file => file.Changed))
             {
                 snapshot.CheckUnchanged(snapshot.Original);
                 var directory = Path.GetDirectoryName(snapshot.Path)!;
                 CreateDirectories(directory, created);
-                Write(snapshot.Path, snapshot.Pending!, snapshot.Original is not null);
+                Write(snapshot.Path, snapshot.Pending!, snapshot.Original is not null, snapshot.BackupSource);
                 applied.Push(snapshot);
             }
         }
         catch (Exception error)
         {
             var failures = new List<string>();
+            var unrestored = new HashSet<string>(PoolSettings.PathComparer);
             while (applied.TryPop(out var snapshot))
             {
+                if (snapshot.BackupSource is { } source && unrestored.Contains(source))
+                {
+                    failures.Add($"原配置备份保留于 {snapshot.Path}");
+                    continue;
+                }
                 try
                 {
                     snapshot.CheckUnchanged(snapshot.Pending);
@@ -70,6 +94,7 @@ internal sealed class SetupFiles
                 }
                 catch (Exception rollback)
                 {
+                    unrestored.Add(snapshot.Path);
                     failures.Add($"{snapshot.Path}：{rollback.Message}");
                 }
             }
@@ -106,7 +131,7 @@ internal sealed class SetupFiles
         created.Push(path);
     }
 
-    private static void Write(string path, byte[] bytes, bool replace)
+    private static void Write(string path, byte[] bytes, bool replace, string? backupSource = null)
     {
         var staging = Path.Combine(Path.GetDirectoryName(path)!, $".serena-pool-{Guid.NewGuid():N}.tmp");
         try
@@ -114,7 +139,10 @@ internal sealed class SetupFiles
             var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
             if (!OperatingSystem.IsWindows())
                 options.UnixCreateMode = replace ? File.GetUnixFileMode(path) : UnixFileMode.UserRead | UnixFileMode.UserWrite;
-            using (var stream = new FileStream(staging, options))
+            using (var stream = OperatingSystem.IsWindows() && backupSource is not null ?
+                new FileInfo(staging).Create(FileMode.CreateNew, FileSystemRights.Write, FileShare.None, 4096,
+                    FileOptions.None, new FileInfo(backupSource).GetAccessControl(AccessControlSections.Access)) :
+                new FileStream(staging, options))
                 stream.Write(bytes);
 
             if (replace)
@@ -128,10 +156,11 @@ internal sealed class SetupFiles
     private static bool Equal(byte[]? left, byte[]? right) =>
         left is null || right is null ? left == right : left.AsSpan().SequenceEqual(right);
 
-    internal sealed class Snapshot(string path, byte[]? original)
+    internal sealed class Snapshot(string path, byte[]? original, string? backupSource = null)
     {
         public string Path { get; } = path;
         public byte[]? Original { get; } = original;
+        public string? BackupSource { get; } = backupSource;
         public byte[]? Pending { get; private set; } = original;
         public bool Changed => !Equal(Original, Pending);
 
@@ -142,6 +171,8 @@ internal sealed class SetupFiles
             var bytes = Utf8.GetBytes(content);
             Pending = Original.AsSpan().StartsWith(Bom) ? [.. Bom, .. bytes] : bytes;
         }
+
+        public void Set(byte[] content) => Pending = content;
 
         public void CheckUnchanged(byte[]? expected)
         {
