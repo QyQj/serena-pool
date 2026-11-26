@@ -28,6 +28,28 @@
     <section id="detail" class="surface" hidden aria-labelledby="detail-title"></section>
     <p class="foot">{{DashboardLastSync}} <time id="updated">—</time></p>
   </section>
+  <section class="activity" aria-labelledby="calls-title">
+    <h2 id="calls-title">{{DashboardCallLog}}</h2>
+    <p id="call-summary"></p>
+    <div class="surface table-wrap" role="region" aria-labelledby="calls-title" tabindex="0">
+      <table>
+        <thead><tr><th scope="col">{{DashboardCallTime}}</th><th scope="col">{{DashboardWorkdir}}</th><th scope="col">{{DashboardCallLease}}</th><th scope="col">{{DashboardStatus}}</th><th scope="col">{{DashboardCallDuration}}</th><th scope="col">{{DashboardReplTools}}</th></tr></thead>
+        <tbody id="call-rows"></tbody>
+      </table>
+      <p id="calls-empty" class="activity-empty" hidden>{{DashboardCallLogEmpty}}</p>
+    </div>
+  </section>
+  <section class="activity" aria-labelledby="usage-title">
+    <h2 id="usage-title">{{DashboardReplUsage}}</h2>
+    <p id="usage-summary"></p>
+    <div class="surface table-wrap" role="region" aria-labelledby="usage-title" tabindex="0">
+      <table>
+        <thead><tr><th scope="col">{{DashboardReplTool}}</th><th scope="col">{{DashboardToolInvocations}}</th></tr></thead>
+        <tbody id="usage-rows"></tbody>
+      </table>
+      <p id="usage-empty" class="activity-empty" hidden>{{DashboardReplUsageEmpty}}</p>
+    </div>
+  </section>
   <p id="notice" role="status" aria-live="polite"></p>
 </main>
 </body>

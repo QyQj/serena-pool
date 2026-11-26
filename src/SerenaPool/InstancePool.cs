@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 
@@ -7,6 +8,9 @@ internal sealed record Acquisition(string instance_id, string workdir, string in
 internal sealed record LeaseView(long Number, DateTimeOffset Acquired, DateTimeOffset LastActivity);
 internal sealed record WorkerView(long Number, string Workdir, int? Pid, string State, DateTimeOffset Started,
     DateTimeOffset? RecycleAt, bool Running, int Queued, string? LastError, LeaseView[] Leases);
+internal sealed record CallLog(DateTimeOffset At, string Workdir, long Lease, string Status,
+    double ElapsedMs, Dictionary<string, int>? Tools);
+internal sealed record CallHistory(int Capacity, CallLog[] Calls);
 
 internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifetime lifetime) : BackgroundService
 {
@@ -35,9 +39,19 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
         public int Pending;
     }
 
+    private sealed class CallActivity
+    {
+        public readonly DateTimeOffset At = DateTimeOffset.UtcNow;
+        public readonly long Timestamp = Stopwatch.GetTimestamp();
+        public string Status = "failed";
+        public ReplUsage? Usage;
+    }
+
+    private const int CallHistoryCapacity = 200;
     private readonly Lock sync = new();
     private readonly Dictionary<string, Worker> workers = new(PoolSettings.PathComparer);
     private readonly Dictionary<Guid, Lease> leases = [];
+    private readonly Queue<CallLog> calls = new(CallHistoryCapacity);
     private long nextNumber;
 
     public Task<Acquisition> AcquireAsync(string workdir, CancellationToken token)
@@ -84,16 +98,24 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
             lease.Pending++;
             lease.Worker.Queued++;
         }
+        var activity = settings.WebDashboard ? new CallActivity() : null;
         return RunAsync(lease.Worker, lease, token, async () =>
         {
-            var result = await lease.Worker.Backend!.CallAsync(lease.Session, code, lifetime.ApplicationStopping);
+            var (result, usage) = await lease.Worker.Backend!.CallAsync(lease.Session, code, lifetime.ApplicationStopping);
+            if (activity is not null)
+            {
+                activity.Usage = usage;
+                activity.Status = result.IsError == true || usage?.Failed == true ? "failed" :
+                    usage is null ? "unverified" : "succeeded";
+            }
             if (result.IsError == true)
                 lock (sync) lease.Worker.Error = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(t => t.Text));
             return result;
-        });
+        }, activity);
     }
 
-    private async Task<T> RunAsync<T>(Worker worker, Lease? lease, CancellationToken request, Func<Task<T>> operation)
+    private async Task<T> RunAsync<T>(
+        Worker worker, Lease? lease, CancellationToken request, Func<Task<T>> operation, CallActivity? activity = null)
     {
         using var waiting = CancellationTokenSource.CreateLinkedTokenSource(
             request, lease?.Released.Token ?? default, lifetime.ApplicationStopping);
@@ -114,11 +136,13 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
         }
         catch (OperationCanceledException) when (waiting.IsCancellationRequested && !lifetime.ApplicationStopping.IsCancellationRequested)
         {
+            if (activity is not null) activity.Status = "canceled";
             if (lease?.Released.IsCancellationRequested == true) throw new McpException(LocalText("ReleasedLease"));
             throw;
         }
         catch (Exception ex) when (started)
         {
+            if (activity is not null) activity.Status = "unknown";
             SerenaProcess? backend;
             lock (sync)
             {
@@ -139,6 +163,12 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
                 else worker.Queued--;
                 worker.LastActivity = DateTimeOffset.UtcNow;
                 if (lease != null) { lease.Pending--; lease.LastActivity = worker.LastActivity; }
+                if (lease is not null && activity is not null)
+                {
+                    if (calls.Count == CallHistoryCapacity) calls.Dequeue();
+                    calls.Enqueue(new(activity.At, worker.Path, lease.Number, activity.Status,
+                        Stopwatch.GetElapsedTime(activity.Timestamp).TotalMilliseconds, activity.Usage?.Tools));
+                }
             }
             if (entered) worker.Gate.Release();
         }
@@ -174,6 +204,11 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
                     state == "idle" ? w.LastActivity + settings.IdleTimeout : null, w.Running, w.Queued, w.Error,
                     w.Leases.Values.Select(l => new LeaseView(l.Number, l.Acquired, l.LastActivity)).ToArray());
             }).ToArray();
+    }
+
+    public CallHistory RecentCalls()
+    {
+        lock (sync) return new(CallHistoryCapacity, calls.Reverse().ToArray());
     }
 
     public async Task<bool> RecycleAsync(long number)

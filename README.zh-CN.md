@@ -167,11 +167,12 @@ symbols
 
 - **仅限本机同源访问**：仅放行回环 IP、`127.0.0.1`/`localhost` 主机头及同源 `Origin` 请求，跨源或非本机访问将返回 `403 Forbidden`。
 - **免令牌操作**：查看实例和领用状态、释放领用（`DELETE /api/leases/{number}`）以及回收空闲/已失效实例（`DELETE /api/workers/{number}`）均无需输入令牌，破坏性操作前会弹出确认对话框。
-- **自动刷新**：页面可见时每 2.5 秒轮询一次 `/api/workers`；关闭浏览器页面不会停止后台实例池。
+- **调用日志与 REPL 工具统计**：`/api/calls` 在内存中保留最近 200 条已结束的 REPL 请求，包括工作目录、公开领用编号、状态和含排队时间的耗时。管理页按这些请求中实际执行的 Serena 工具和 REPL 方法的调用次数排序，并显示有跟踪数据的请求数。日志只保存元数据，重启共享池后清空。
+- **自动刷新**：页面可见时每 2.5 秒更新实例状态和调用历史。关闭浏览器页面不会停止后台实例池。
 
 Windows、macOS 和 Linux 都提供管理页，浏览器标签使用 Serena Pool 图标。Windows 上每个共享池还会显示一个同款托盘图标，点击即可用默认浏览器打开管理页。管理页默认启用，浏览器按需打开。
 
-如需关闭管理页、管理 API 和托盘，在 MCP 条目的环境配置中将 `Pool__WebDashboard` 设为 `"false"`。HTTP MCP 和 stdio 照常使用。若希望共享池启动时自动打开已启用的管理页，将 `Pool__WebDashboardOpenOnLaunch` 设为 `"true"`。
+如需关闭管理页、管理 API、调用跟踪和托盘，在 MCP 条目的环境配置中将 `Pool__WebDashboard` 设为 `"false"`。HTTP MCP 和 stdio 照常使用。若希望共享池启动时自动打开已启用的管理页，将 `Pool__WebDashboardOpenOnLaunch` 设为 `"true"`。
 
 在 Codex 中，把开关加到 `[mcp_servers.serena-pool]` 的现有 `env` 表中，并保留 `setup` 写入的 Serena 路径。例如：
 

@@ -62,10 +62,16 @@ try
     }
     Check(JsonNode.Parse(await dashboard.GetStringAsync("/api/workers", ct)) is JsonArray { Count: 0 },
         "dashboard status is available without a token");
+    Check(JsonNode.Parse(await dashboard.GetStringAsync("/api/calls", ct))?["calls"] is JsonArray { Count: 0 },
+        "call history starts empty");
     using var foreign = new HttpRequestMessage(HttpMethod.Post, "/mcp");
     foreign.Headers.Add("Origin", "http://example.org");
     using var blocked = await http.SendAsync(foreign, ct);
     Check(blocked.StatusCode == HttpStatusCode.Forbidden, "foreign origin rejected");
+    using var foreignHistory = new HttpRequestMessage(HttpMethod.Get, "/api/calls");
+    foreignHistory.Headers.Add("Origin", "http://example.org");
+    using var blockedHistory = await dashboard.SendAsync(foreignHistory, ct);
+    Check(blockedHistory.StatusCode == HttpStatusCode.Forbidden, "foreign origin cannot read call history");
     foreach (var path in new[] { "/", "/app.js", "/app.css" })
         Check((await http.GetStringAsync(path, ct)).Length > 0, $"embedded asset {path}");
 
@@ -131,6 +137,25 @@ try
     Check(fromStdio.IsError != true && Text(fromStdio).Contains("731"), "stdio executes Python with the lease acquired via HTTP");
     Check(Text(await Call(ids[1], "'independent' if 'marker' not in globals() else 'contaminated'")).Contains("independent"), "independent namespace");
     Check(Text(await Call(ids[0], "marker")).Contains("731"), "persisted namespace");
+    var observedCall = await Call(ids[0], """
+        ignored = "s.fs.read_file('dashboard-private-source')"
+        inspect_api = getattr(s, "info")
+        for _ in range(2):
+            inspect_api("lsp.get_symbols_overview")
+        "dashboard-private-result"
+        """);
+    Check(observedCall.IsError != true && Text(observedCall) == "dashboard-private-result" &&
+        !(observedCall.StructuredContent?.GetRawText().Contains("serena-pool-usage-") ?? false),
+        "instrumented calls retain the original MCP response");
+    var pythonError = await Call(ids[1], "s.vars()\nraise ValueError('dashboard-private-error')");
+    Check(Text(pythonError).StartsWith("ValueError: dashboard-private-error"), "REPL error keeps its original output");
+    var historyJson = await dashboard.GetStringAsync("/api/calls", ct);
+    var history = JsonNode.Parse(historyJson)!["calls"]!.AsArray();
+    Check((string?)history[0]!["status"] == "failed" && (int?)history[0]!["tools"]?["s.vars"] == 1 &&
+        (string?)history[1]!["status"] == "succeeded" && (int?)history[1]!["tools"]?["s.info"] == 2 &&
+        history[1]!["tools"]?["fs.read_file"] is null && (string?)history[1]!["workdir"] == primary,
+        "history counts actual REPL invocations including those in failed calls");
+    Check(!historyJson.Contains("dashboard-private-") && !historyJson.Contains(ids[0]), "history contains only call metadata");
     const string symbol = "s.lsp.find_symbol('Marker', relative_path='sample.py', include_body=True)";
     var symbols = await Task.WhenAll(Call(ids[0], symbol), Call(third, symbol));
     for (var i = 0; i < symbols.Length; i++)
@@ -138,6 +163,9 @@ try
         var result = Text(symbols[i]);
         Check(result.Contains(i == 0 ? "primary" : "secondary"), "worktree symbol lookup: " + result);
     }
+    var symbolHistory = JsonNode.Parse(await dashboard.GetStringAsync("/api/calls", ct))!["calls"]!.AsArray();
+    Check(symbolHistory.Take(2).All(entry => (int?)entry!["tools"]?["lsp.find_symbol"] == 1),
+        "facade calls are observed in both worktrees");
     Console.WriteLine("Passed: MCP access, process reuse, private sessions, both worktree symbol lookups.");
 
     var running = Call(ids[0], "import time\ntime.sleep(2)\n'finished'");
@@ -146,6 +174,9 @@ try
     await WaitUntil(async () => (await Snapshot()).Any(w => (int)w!["queued"]! == 1));
     await Tool("release", ("instance_id", ids[0]));
     Check((await queued).IsError == true && Text(await running).Contains("finished"), "release drains only running work");
+    var canceledHistory = JsonNode.Parse(await dashboard.GetStringAsync("/api/calls", ct))!["calls"]!.AsArray();
+    Check(canceledHistory.Take(2).Any(entry => (string?)entry!["status"] == "canceled" && entry["tools"] is null),
+        "canceled queued calls have no tool trace");
     Check((await Call(ids[0], "1")).IsError == true, "revoked handle rejected");
     await Tool("release", ("instance_id", ids[1]));
     var warm = await Acquire(primary);
@@ -169,6 +200,8 @@ try
         process.Kill();
     var unknown = await interrupted.WaitAsync(TimeSpan.FromSeconds(10), ct);
     Check(unknown.IsError == true && Text(unknown).Contains("执行结果未知"), "backend loss reports unknown outcome: " + Text(unknown));
+    var failedHistory = JsonNode.Parse(await dashboard.GetStringAsync("/api/calls", ct))!["calls"]!.AsArray();
+    Check((string?)failedHistory[0]!["status"] == "unknown", "worker loss is recorded with an unknown outcome");
     Check((await Call(doomed, "1")).IsError == true && Text(await Call(third, "17")).Contains("17"), "failed worker isolated");
     using var recycled = await dashboard.DeleteAsync("/api/workers/" + (long)worker["number"]!, ct);
     Check(recycled.StatusCode == HttpStatusCode.NoContent && (await Snapshot()).Count == 1, "dashboard recycling without a token");
@@ -310,7 +343,7 @@ static async Task CheckColdStdio(string binary, string sandbox, string project, 
     await using (var second = clients[1])
     {
         using var http = new HttpClient { BaseAddress = new Uri(url) };
-        foreach (var path in new[] { "/", "/app.js", "/app.css", "/favicon.ico", "/api/workers" })
+        foreach (var path in new[] { "/", "/app.js", "/app.css", "/favicon.ico", "/api/workers", "/api/calls" })
         {
             using var response = await http.GetAsync(path, ct);
             Check(response.StatusCode == HttpStatusCode.NotFound, $"dashboard disabled: {path}");

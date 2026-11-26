@@ -25,6 +25,23 @@
   <data name="ConfiguredSerenaMissing" xml:space="preserve"><value>The Serena executable specified by Pool__Executable does not exist: {0}.</value></data>
   <data name="DashboardAcquired" xml:space="preserve"><value>Acquired {0}</value></data>
   <data name="DashboardActions" xml:space="preserve"><value>Actions</value></data>
+  <data name="DashboardCallCanceled" xml:space="preserve"><value>Canceled</value></data>
+  <data name="DashboardCallDuration" xml:space="preserve"><value>Elapsed</value></data>
+  <data name="DashboardCallFailed" xml:space="preserve"><value>Failed</value></data>
+  <data name="DashboardCallLease" xml:space="preserve"><value>Lease</value></data>
+  <data name="DashboardCallLog" xml:space="preserve"><value>Call log</value></data>
+  <data name="DashboardCallLogEmpty" xml:space="preserve"><value>No completed calls</value></data>
+  <data name="DashboardCallSucceeded" xml:space="preserve"><value>Succeeded</value></data>
+  <data name="DashboardCallSummary" xml:space="preserve"><value>{0} of {1} retained calls</value></data>
+  <data name="DashboardCallTime" xml:space="preserve"><value>Started</value></data>
+  <data name="DashboardCallUnknown" xml:space="preserve"><value>Outcome unknown</value></data>
+  <data name="DashboardCallUnverified" xml:space="preserve"><value>Trace unavailable</value></data>
+  <data name="DashboardReplTool" xml:space="preserve"><value>REPL tool</value></data>
+  <data name="DashboardReplTools" xml:space="preserve"><value>REPL tools</value></data>
+  <data name="DashboardReplUsage" xml:space="preserve"><value>REPL tool usage</value></data>
+  <data name="DashboardReplUsageEmpty" xml:space="preserve"><value>No recorded tool invocations</value></data>
+  <data name="DashboardToolInvocations" xml:space="preserve"><value>Invocations</value></data>
+  <data name="DashboardUsageSummary" xml:space="preserve"><value>Tool usage captured for {0} of {1} calls</value></data>
   <data name="DashboardActive" xml:space="preserve"><value>In use</value></data>
   <data name="DashboardClose" xml:space="preserve"><value>Close details</value></data>
   <data name="DashboardConfirmRecycle" xml:space="preserve"><value>Recycle worker #{0}?</value></data>

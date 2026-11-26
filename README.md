@@ -167,11 +167,12 @@ Open [http://127.0.0.1:32980/](http://127.0.0.1:32980/) in your browser (replace
 
 - **Local-only access**: Only loopback connections, `127.0.0.1`/`localhost` hosts, and matching `Origin` headers are accepted; non-local or cross-origin requests receive `403 Forbidden`.
 - **No token required**: Viewing worker/lease status, releasing leases (`DELETE /api/leases/{number}`), and recycling idle or failed workers (`DELETE /api/workers/{number}`) require no token and prompt for confirmation before acting.
-- **Live updates**: Polls `/api/workers` every 2.5 seconds while the page is visible. Closing the browser tab does not stop the pool host.
+- **Call log and REPL usage**: `/api/calls` lists the last 200 completed REPL requests in memory with the working directory, public lease number, status, and elapsed time including queueing. The dashboard ranks the Serena facade and REPL methods actually invoked across those requests and reports how many calls provided traces. The log retains only these metadata fields and the invoked tool names and counts. Restarting the pool clears the history.
+- **Live updates**: Polls worker status and call history every 2.5 seconds while the page is visible. Closing the browser tab does not stop the pool host.
 
 The dashboard is available on Windows, macOS, and Linux. On Windows, select the Serena Pool notification-area icon to open it. Each shared pool has one notification-area icon. The dashboard uses the project icon in the browser and stays enabled by default.
 
-To disable the page, its management API, and the tray icon, add `Pool__WebDashboard = "false"` to your MCP server's environment configuration. Both MCP transports remain available. To open the enabled page automatically when the shared pool starts, set `Pool__WebDashboardOpenOnLaunch = "true"`.
+To disable the page, its management API, call tracing, and the tray icon, add `Pool__WebDashboard = "false"` to your MCP server's environment configuration. Both MCP transports remain available. To open the enabled page automatically when the shared pool starts, set `Pool__WebDashboardOpenOnLaunch = "true"`.
 
 ## Environment Variables
 

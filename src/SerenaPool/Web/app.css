@@ -35,6 +35,13 @@ tr.selected > * { background: #eff7f0; }
 .tag.failed { color: #902822; background: #f9e5df; }
 .tag.idle { color: #5d625e; background: #eef0ec; }
 .tag.starting { color: #775706; background: #fff1c6; }
+.tag.unknown, .tag.unverified { color: #775706; background: #fff1c6; }
+.tag.canceled { color: #5d625e; background: #eef0ec; }
+.activity { margin-block: 1.8rem; }
+.activity h2 + p { margin-bottom: .6rem; }
+.activity .table-wrap { max-block-size: 28rem; }
+.activity-empty { text-align: center; padding: 1.4rem 1rem; }
+.elapsed { white-space: nowrap; }
 #empty { text-align: center; padding: 3rem 1rem; }
 #empty p { margin-top: .5rem; }
 #detail { padding: 1.4rem; margin-top: 1rem; }

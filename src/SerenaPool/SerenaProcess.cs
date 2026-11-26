@@ -8,8 +8,11 @@ using ModelContextProtocol.Protocol;
 namespace SerenaPool;
 
 internal sealed partial class SerenaProcess(
-    Process launcher, Action terminate, Process server, McpClient client, string sessionParameter) : IAsyncDisposable
+    Process launcher, Action terminate, Process server, McpClient client, string sessionParameter,
+    string? telemetryMarker) : IAsyncDisposable
 {
+    private bool telemetryAttempted;
+
     public int Pid => server.Id;
     public bool HasExited => server.HasExited || client.Completion.IsCompleted;
 
@@ -89,7 +92,8 @@ internal sealed partial class SerenaProcess(
                     .Where(name => name is "session" or "session_id")
                     .ToArray() is not [string sessionParameter])
                 throw new McpException(LocalText("UnsupportedReplSessionParameter"));
-            return new(launcher, Terminate, server, client, sessionParameter);
+            return new(launcher, Terminate, server, client, sessionParameter,
+                settings.WebDashboard ? "\nserena-pool-usage-" + Guid.NewGuid().ToString("N") + ":" : null);
         }
         catch (Exception ex)
         {
@@ -123,7 +127,20 @@ internal sealed partial class SerenaProcess(
         return (session.Groups[1].Value, manual.Remove(session.Index, session.Length).Trim());
     }
 
-    public ValueTask<CallToolResult> CallAsync(string session, string code, CancellationToken token) =>
+    public async ValueTask<(CallToolResult Result, ReplUsage? Usage)> CallAsync(
+        string session, string code, CancellationToken token)
+    {
+        if (telemetryMarker is not null && !telemetryAttempted)
+        {
+            telemetryAttempted = true;
+            // Install once per worker so submitted code and session variables stay intact.
+            await SendAsync(session, ReplTelemetry.Bootstrap(telemetryMarker), token);
+        }
+        var result = await SendAsync(session, code, token);
+        return (result, telemetryMarker is null ? null : ReplTelemetry.Extract(result, telemetryMarker));
+    }
+
+    private ValueTask<CallToolResult> SendAsync(string session, string code, CancellationToken token) =>
         client.CallToolAsync("serena_repl", new Dictionary<string, object?> { [sessionParameter] = session, ["code"] = code },
             cancellationToken: token);
 

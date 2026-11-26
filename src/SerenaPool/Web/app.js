@@ -6,9 +6,15 @@ const text = (key, ...values) => messages[key].replace(/\{(\d+)\}/g, (_, index) 
 const locale = document.documentElement.lang;
 const clockFormat = new Intl.DateTimeFormat(locale, {timeStyle: "medium", hour12: false});
 const timestampFormat = new Intl.DateTimeFormat(locale, {dateStyle: "medium", timeStyle: "medium"});
+const durationFormat = new Intl.NumberFormat(locale, {style: "unit", unit: "millisecond", maximumFractionDigits: 0});
 const clock = value => clockFormat.format(new Date(value));
 const states = {starting: text("DashboardStarting"), active: text("DashboardActive"), idle: text("DashboardIdle"), failed: text("DashboardWorkerFailed")};
-let workers = [], selected = null, syncing = false, version = "";
+const callStates = {
+  succeeded: text("DashboardCallSucceeded"), failed: text("DashboardCallFailed"),
+  canceled: text("DashboardCallCanceled"), unknown: text("DashboardCallUnknown"),
+  unverified: text("DashboardCallUnverified")
+};
+let workers = [], selected = null, syncing = false, version = "", activityVersion = "";
 
 function el(tag, text, className) {
   const node = document.createElement(tag);
@@ -23,6 +29,13 @@ function action(label, key, fn) {
   button.dataset.key = key;
   button.addEventListener("click", fn);
   return button;
+}
+
+function tableCell(label, item) {
+  const cell = el("td");
+  cell.dataset.label = label;
+  cell.append(item);
+  return cell;
 }
 
 async function api(path, method = "GET") {
@@ -48,10 +61,7 @@ function render() {
       [text("DashboardQueue"), el("span", Number(w.running) + " / " + w.queued, "mono")],
       [text("DashboardActions"), action(text("DashboardView"), "view-" + w.number, () => { selected = w.number; render(); byId("detail-title").focus(); })]
     ]) {
-      const cell = el("td");
-      cell.dataset.label = label;
-      cell.append(item);
-      row.append(cell);
+      row.append(tableCell(label, item));
     }
     fragment.append(row);
   }
@@ -89,13 +99,49 @@ function render() {
   if (focused) document.querySelector('[data-key="' + CSS.escape(focused) + '"]')?.focus({preventScroll: true});
 }
 
+function renderActivity({capacity, calls}) {
+  const logRows = document.createDocumentFragment(), toolRows = document.createDocumentFragment();
+  const totals = new Map();
+  let observed = 0;
+  for (const call of calls) {
+    const row = el("tr"), heading = el("th"), time = el("time", timestampFormat.format(new Date(call.at)));
+    time.dateTime = call.at;
+    heading.scope = "row";
+    heading.append(time);
+    const tools = Object.entries(call.tools ?? {});
+    if (call.tools !== null) observed++;
+    for (const [name, count] of tools) totals.set(name, (totals.get(name) ?? 0) + count);
+    row.append(heading,
+      tableCell(text("DashboardWorkdir"), el("span", call.workdir, "path")),
+      tableCell(text("DashboardCallLease"), el("span", call.lease, "mono")),
+      tableCell(text("DashboardStatus"), el("span", callStates[call.status], "tag " + call.status)),
+      tableCell(text("DashboardCallDuration"), el("span", durationFormat.format(call.elapsedMs), "elapsed")),
+      tableCell(text("DashboardReplTools"), el("span", tools.map(([name, count]) => name + " ×" + count).join(", ") || "—", "mono")));
+    logRows.append(row);
+  }
+  for (const [name, count] of [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
+    const row = el("tr"), heading = el("th", name, "mono");
+    heading.scope = "row";
+    row.append(heading, tableCell(text("DashboardToolInvocations"), String(count)));
+    toolRows.append(row);
+  }
+  byId("call-rows").replaceChildren(logRows);
+  byId("usage-rows").replaceChildren(toolRows);
+  byId("call-summary").textContent = text("DashboardCallSummary", calls.length, capacity);
+  byId("usage-summary").textContent = text("DashboardUsageSummary", observed, calls.length);
+  byId("calls-empty").hidden = calls.length > 0;
+  byId("usage-empty").hidden = totals.size > 0;
+}
+
 async function refresh() {
   if (syncing) return;
   syncing = true;
   try {
-    const data = await (await api("/api/workers")).json();
+    const [data, activity] = await Promise.all(["/api/workers", "/api/calls"].map(async path => (await api(path)).json()));
     const next = JSON.stringify(data);
     if (next !== version) { workers = data; version = next; render(); }
+    const nextActivity = JSON.stringify(activity);
+    if (nextActivity !== activityVersion) { renderActivity(activity); activityVersion = nextActivity; }
     if (connection.textContent !== text("DashboardConnected")) notice.textContent = "";
     connection.textContent = text("DashboardConnected");
     byId("updated").textContent = clock(Date.now());

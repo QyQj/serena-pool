@@ -25,6 +25,23 @@
   <data name="ConfiguredSerenaMissing" xml:space="preserve"><value>Pool__Executable 指定的 Serena 启动程序不存在：{0}。</value></data>
   <data name="DashboardAcquired" xml:space="preserve"><value>领用时间 {0}</value></data>
   <data name="DashboardActions" xml:space="preserve"><value>操作</value></data>
+  <data name="DashboardCallCanceled" xml:space="preserve"><value>已取消</value></data>
+  <data name="DashboardCallDuration" xml:space="preserve"><value>耗时</value></data>
+  <data name="DashboardCallFailed" xml:space="preserve"><value>失败</value></data>
+  <data name="DashboardCallLease" xml:space="preserve"><value>领用编号</value></data>
+  <data name="DashboardCallLog" xml:space="preserve"><value>调用日志</value></data>
+  <data name="DashboardCallLogEmpty" xml:space="preserve"><value>暂无已结束的调用</value></data>
+  <data name="DashboardCallSucceeded" xml:space="preserve"><value>成功</value></data>
+  <data name="DashboardCallSummary" xml:space="preserve"><value>已保留 {0} 条调用，最多 {1} 条</value></data>
+  <data name="DashboardCallTime" xml:space="preserve"><value>开始时间</value></data>
+  <data name="DashboardCallUnknown" xml:space="preserve"><value>结果未知</value></data>
+  <data name="DashboardCallUnverified" xml:space="preserve"><value>未取得跟踪数据</value></data>
+  <data name="DashboardReplTool" xml:space="preserve"><value>REPL 工具</value></data>
+  <data name="DashboardReplTools" xml:space="preserve"><value>REPL 工具</value></data>
+  <data name="DashboardReplUsage" xml:space="preserve"><value>REPL 工具使用情况</value></data>
+  <data name="DashboardReplUsageEmpty" xml:space="preserve"><value>暂无已记录的工具调用</value></data>
+  <data name="DashboardToolInvocations" xml:space="preserve"><value>调用次数</value></data>
+  <data name="DashboardUsageSummary" xml:space="preserve"><value>{1} 条调用中有 {0} 条取得了工具使用数据</value></data>
   <data name="DashboardActive" xml:space="preserve"><value>使用中</value></data>
   <data name="DashboardClose" xml:space="preserve"><value>关闭详情</value></data>
   <data name="DashboardConfirmRecycle" xml:space="preserve"><value>回收实例 #{0}？</value></data>
