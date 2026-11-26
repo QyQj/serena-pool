@@ -11,7 +11,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>serena-pool</ToolCommandName>
     <PackageId>SerenaPool</PackageId>
-    <VersionPrefix>0.2.0</VersionPrefix>
+    <VersionPrefix>0.3.0</VersionPrefix>
     <Version Condition="'$(PackageVersion)' != ''">$(PackageVersion)</Version>
     <PackageType>DotnetTool;McpServer</PackageType>
     <Authors>Ejy Chien</Authors>
@@ -26,7 +26,7 @@
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <DebugType>embedded</DebugType>
-    <PackageReleaseNotes>The Web dashboard runs independently from the shared worker pool. MCP clients connect via stdio. The dashboard, stdio bridge, and core write separate per-user logs.</PackageReleaseNotes>
+    <PackageReleaseNotes>Setup can install the skill, register the MCP server, or export stdio MCP JSON for gateways such as Moor.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>

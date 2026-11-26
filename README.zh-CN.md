@@ -10,7 +10,7 @@ Serena Pool 让同一台电脑上的多个 MCP 客户端和编码 Agent 共用 [
 - **隔离的 REPL 会话（领用 / Lease）**：每次调用 `acquire(workdir)` 都会在 Serena 中开启独立的 REPL 会话并返回私有 `instance_id`，各 Agent 的 Python 变量命名空间相互隔离，同时避免重复启动语言服务器。只要领用有效，其他 Agent 反复领用、释放同一实例也会保留当前领用的变量。
 - **同目录串行调度**：发往同一项目目录的调用通过实例内互斥门控排队顺序执行，防止并发操作 REPL 或 LSP 状态产生冲突。
 - **多客户端共享 stdio 实例池**。每个客户端经独立的桥接进程和本机命名管道连接共享核心。
-- **一条命令接入 7 种客户端**：`serena-pool setup` 可同时写入 MCP 注册项并安装配套 `serena-pool` skill，支持写入前冲突检查与失败自动回滚。
+- **支持 7 种客户端**：`serena-pool setup` 可按需安装配套 Skill、注册 MCP，或输出 stdio MCP JSON 交给 Moor 等网关托管。
 - **本机 Web 管理页**：在 `http://127.0.0.1:32980/` 实时查看实例状态、PID、执行/排队数、最近错误和领用记录，支持手动释放滞留领用与回收空闲实例。Windows 上可从系统托盘打开管理页。
 - **子进程树可靠回收**：Windows 使用 Job Object（`KILL_ON_JOB_CLOSE`），Linux 和 macOS 使用独立 POSIX 进程组配合父进程守望启动器，即使管理进程异常退出也不会残留语言服务器子进程。
 
@@ -32,7 +32,7 @@ MCP 客户端 ── stdio ── 桥接器 ── MCP 管道 ──┐
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) 或更新版本（已包含 ASP.NET Core 10 运行时）。
 - 支持 REPL 接口的 [Serena](https://github.com/oraios/serena)（需支持 `--agent-interface repl`，提供 `initial_instructions` 与 `serena_repl`）。
 - Serena Pool 在工作进程启动时读取 `serena_repl` 声明的必填会话参数。Serena 2.0.0 使用 `session_id`，Serena 2.1.0 使用 `session`。MCP 客户端通过 `instance_id` 传递 Pool 的领用 ID。
-- 安装 `serena`（Windows 上为 `serena.exe`）。`setup` 会搜索 `PATH` 和用户安装目录，也可通过 `Pool__Executable` 显式指定可执行文件或所在目录。
+- 注册或导出 MCP 配置需要安装 `serena`（Windows 上为 `serena.exe`）。`setup` 会搜索 `PATH` 和用户安装目录，也可通过 `Pool__Executable` 显式指定可执行文件或所在目录。
 
 ## 安装与快速配置
 
@@ -60,19 +60,30 @@ serena-pool setup codex
 
 ### 升级
 
-从旧版本升级时，用 `0.2.0` 为已配置的客户端重新执行 `setup`。以 Codex 为例：
+从旧版本升级时，用 `0.3.0` 为已配置的客户端重新执行 `setup`。以 Codex 为例：
 
 ```sh
-dotnet tool exec SerenaPool@0.2.0 -- setup codex
+dotnet tool exec SerenaPool@0.3.0 -- setup codex
 ```
 
-已安装的客户端如果共用同一份 skill，请在同一条命令里一起更新，例如 `setup codex cursor`。习惯使用全局命令时，先运行 `dotnet tool update --global SerenaPool --version 0.2.0`，再执行 `serena-pool setup codex`。
+已安装的客户端如果共用同一份 skill，请在同一条命令里一起更新，例如 `setup codex cursor`。习惯使用全局命令时，先运行 `dotnet tool update --global SerenaPool --version 0.3.0`，再执行 `serena-pool setup codex`。
 
 释放正在使用的领用并关闭连接旧共享池的客户端。等旧后台进程退出后，再开启新会话。仅升级全局工具不会修改客户端里固定的版本。
 
-### 支持的客户端（`setup`）
+### 配置方式
 
-可在 `setup` 后一次传入多个客户端标识（如 `serena-pool setup codex cursor`），或在交互式终端中省略标识，按提示从已检测到的列表中进行选择：
+在终端运行 `serena-pool setup` 即可选择操作。安装时可从列表中选择客户端，也可以在命令行直接传入一个或多个客户端标识。
+
+| 命令 | 操作 |
+| --- | --- |
+| `serena-pool setup codex` | 安装 Skill 并在 Codex 中注册 MCP。 |
+| `serena-pool setup --skill-only codex` | 仅安装 Codex 的 Skill，只需安装 Serena Pool 工具。 |
+| `serena-pool setup --mcp-only codex` | 仅注册或更新 Codex 的 MCP 条目。 |
+| `serena-pool setup --mcp-json` | 把 `mcpServers` JSON 输出到标准输出，包含固定版本与可执行文件绝对路径，不写入安装文件。 |
+
+使用 Moor 托管时，先运行 `setup --skill-only codex` 安装 Skill，再将 `setup --mcp-json` 的输出粘贴到 Moor 的 **服务器 → 导入 JSON**，然后让 Codex 连接 Moor 的 MCP 端点。[Moor 配置说明](https://github.com/varandrew/moor#quickstart)
+
+### 支持的客户端（`setup`）
 
 | 客户端标识 | MCP 配置写入位置 | Skill 安装路径 | 说明 |
 | --- | --- | --- | --- |
@@ -87,13 +98,13 @@ dotnet tool exec SerenaPool@0.2.0 -- setup codex
 `setup` 在写入任何文件前都会执行检查并保障一致性：
 - 自动按物理路径去重共享 skill 目录（例如 `codex`、`cursor`、`copilot`、`opencode` 与 `gemini-cli` 共用 `~/.agents/skills/serena-pool/SKILL.md`），并在 `~/.serena-pool/setup.json` 记录托管状态。
 - 保留其他无关 MCP 条目以及已为 `serena-pool` 配置的自定义 `--urls` 参数。Codex 配置已有 `[mcp_servers]` 时，只追加 Serena Pool 的子表。
-- 若发现同名外部 MCP 条目、用户手动修改过 skill 文件，或共用同一 skill 的其他客户端仍固定在另一版本，会在写入前报错停止（跨版本冲突时需将共用客户端一并升级）。
-- 写入前会运行找到的 Serena，确认它支持 REPL。
+- 注册 MCP 时检查同名外部条目，安装 Skill 时检查是否有手动修改。同时执行两项时，还会检查共用同一 Skill 的其他客户端是否固定在不同版本。
+- 注册 MCP 或输出 JSON 前会运行找到的 Serena，确认它支持 REPL。
 - 在各宿主的 MCP 条目中将 Serena 的绝对路径写为 `Pool__Executable`，并清理已有受管条目中的旧凭证设置。
 - 修改已有 MCP 配置前会创建备份，文件名以 `.SerenaPool` 结尾。若已有同名备份，会在后缀前加编号。
 - 写入过程中若发生异常，会自动回滚本次所有改动。
 
-配置完成后，终端会输出版本、各客户端的配置和 skill 路径、本次写入的 Serena Pool 管理项、备份路径（如有）及运行地址。之后在客户端开启新会话即可加载。
+安装 Skill 或注册 MCP 后，终端会输出版本及本次操作涉及的路径。注册 MCP 时还会显示写入的管理项、备份路径（如有）及运行地址。之后在客户端开启新会话即可加载。
 
 通过 HTTP `/mcp` 地址接入的客户端需要改用 stdio。
 
@@ -104,7 +115,8 @@ dotnet tool exec SerenaPool@0.2.0 -- setup codex
 ```sh
 serena-pool mcp [--urls http://127.0.0.1:32980]
 serena-pool dashboard [--urls http://127.0.0.1:32980]
-serena-pool setup [harness ...]
+serena-pool setup [--skill-only | --mcp-only] [harness ...]
+serena-pool setup --mcp-json
 serena-pool --help
 ```
 
@@ -209,7 +221,7 @@ dotnet build SerenaPool.slnx -c Release
 dotnet pack src/SerenaPool -c Release
 
 # 验证本地打包产物
-dotnet tool exec SerenaPool@0.2.0 --source src/SerenaPool/bin/Release -- --help
+dotnet tool exec SerenaPool@0.3.0 --source src/SerenaPool/bin/Release -- --help
 
 # 使用真实 Serena 与临时目录运行端到端冒烟测试
 dotnet run --project tests/SerenaPool.Smoke -c Release -- "<可写临时目录的绝对路径>"

@@ -9,6 +9,7 @@ namespace SerenaPool;
 
 internal static class HarnessSetup
 {
+    public const string Usage = "serena-pool setup [--skill-only | --mcp-only] [harness ...]\nserena-pool setup --mcp-json";
     private const string Package = "SerenaPool@";
     private static readonly string Version = typeof(HarnessSetup).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
         .Single(attribute => attribute.Key == "PackageVersion").Value!;
@@ -16,6 +17,32 @@ internal static class HarnessSetup
 
     public static int Run(string[] args)
     {
+        var interactive = !Console.IsInputRedirected && !Console.IsOutputRedirected;
+        if (args.Length == 0 && interactive)
+        {
+            Console.Error.Write(LocalText("ChooseSetupAction"));
+            var choice = Console.ReadLine()?.Trim();
+            if (string.IsNullOrEmpty(choice))
+                return 0;
+            args = choice switch
+            {
+                "1" => [],
+                "2" => ["--skill-only"],
+                "3" => ["--mcp-only"],
+                "4" => ["--mcp-json"],
+                _ => throw new ArgumentException(LocalText("InvalidSetupAction", choice))
+            };
+        }
+
+        if (args is ["--mcp-json"])
+        {
+            var executable = ResolveSerena();
+            var dotnet = FindDotnet();
+            var launch = BuildLaunchArgs(ReadSdkMajor(dotnet), [], []);
+            Console.Write(new HarnessConfig(null, "stdio").SetLaunch("stdio", dotnet, launch, executable, null));
+            return 0;
+        }
+
         var home = Path.GetFullPath(Environment.GetEnvironmentVariable(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME")
             ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
         var catalog = GetTargets(home);
@@ -25,10 +52,15 @@ internal static class HarnessSetup
             return 0;
         }
 
+        var registerMcp = args.FirstOrDefault() != "--skill-only";
+        var installSkill = args.FirstOrDefault() != "--mcp-only";
+        if (!registerMcp || !installSkill)
+            args = args[1..];
+
         if (args.Length == 0)
         {
             PrintUsage(catalog);
-            if (Console.IsInputRedirected || Console.IsOutputRedirected)
+            if (!interactive)
                 return 2;
             Console.Write(LocalText("ChooseTargets"));
             args = (Console.ReadLine() ?? "").Split([' ', ',', '\t'], StringSplitOptions.RemoveEmptyEntries);
@@ -42,7 +74,7 @@ internal static class HarnessSetup
                 return catalog[index - 1];
             return catalog.SingleOrDefault(target => target.Id.Equals(argument, StringComparison.OrdinalIgnoreCase)) ??
                 throw new ArgumentException(LocalText("UnknownTarget", argument));
-        }).Distinct().Select(target => target.ResolvePaths()).ToArray();
+        }).Distinct().Select(target => target.ResolvePaths(registerMcp, installSkill)).ToArray();
 
         using var mutex = new Mutex(false, $"serena-pool-{LocalPipeAddress.UserId()}-0-setup");
         try
@@ -52,24 +84,21 @@ internal static class HarnessSetup
         }
         catch (AbandonedMutexException) { /* 重新读取当前配置后再安装。 */ }
 
-        try { Install(home, catalog, selected); }
+        try { Install(home, catalog, selected, registerMcp, installSkill); }
         finally { mutex.ReleaseMutex(); }
         return 0;
     }
 
-    private static void Install(string home, Target[] catalog, Target[] selected)
+    private static void Install(string home, Target[] catalog, Target[] selected, bool registerMcp, bool installSkill)
     {
         var files = new SetupFiles();
         var stateFile = files.Read(SetupFiles.PhysicalPath(Path.Combine(home, ".serena-pool", "setup.json")));
         var state = stateFile.Text is { } data ? JsonSerializer.Deserialize<InstallState>(data) ??
             throw new InvalidDataException(LocalText("InvalidSetupState", stateFile.Path)) : new([], []);
-        using var stream = typeof(HarnessSetup).Assembly.GetManifestResourceStream("SerenaPool.Skill")!;
-        using var reader = new StreamReader(stream);
-        var skill = reader.ReadToEnd();
         var configurations = new Dictionary<string, (string Format, SetupFiles.Snapshot File)>(PoolSettings.PathComparer);
         var conflicts = new List<string>();
-        var launches = new Launch?[selected.Length];
-        var groups = selected.GroupBy(target => target.Skill, PoolSettings.PathComparer).ToArray();
+        var launches = new Launch?[registerMcp ? selected.Length : 0];
+        var groups = installSkill ? selected.GroupBy(target => target.Skill, PoolSettings.PathComparer).ToArray() : [];
 
         SetupFiles.Snapshot ConfigFile(Target target)
         {
@@ -93,7 +122,7 @@ internal static class HarnessSetup
             }
         }
 
-        for (var i = 0; i < selected.Length; i++)
+        for (var i = 0; i < launches.Length; i++)
         {
             var target = selected[i];
             var config = ReadConfig(target);
@@ -111,10 +140,13 @@ internal static class HarnessSetup
                 (prior is null || existing != prior.Source || !SameUtf8File(skillFile, prior.Source)))
                 conflicts.Add(LocalText("SkillConflict", owners, group.Key));
 
+            if (!registerMcp)
+                continue;
             var otherTargets = catalog.Where(target =>
                 PoolSettings.PathComparer.Equals(SetupFiles.PhysicalPath(target.Skill), group.Key))
-                .Select(target => target.ResolvePaths()).ToList();
-            otherTargets.AddRange(state.Registrations.Where(item => PoolSettings.PathComparer.Equals(item.Skill, group.Key)));
+                .Select(target => target.ResolvePaths(registerMcp: true, installSkill: true)).ToList();
+            otherTargets.AddRange(state.Registrations.Where(item =>
+                PoolSettings.PathComparer.Equals(SetupFiles.PhysicalPath(item.Skill), group.Key)));
             foreach (var target in otherTargets.DistinctBy(target => target.Config, PoolSettings.PathComparer))
             {
                 if (selected.Any(item => PoolSettings.PathComparer.Equals(item.Config, target.Config)))
@@ -132,31 +164,22 @@ internal static class HarnessSetup
         if (conflicts.Count > 0)
             throw new InvalidOperationException(LocalText("SetupConflicts", string.Join("\n- ", conflicts)));
 
-        var executable = new PoolSettings { Executable = Environment.GetEnvironmentVariable("Pool__Executable") }.ResolveExecutable();
-        ValidateSerena(executable);
-        var defaultDotnet = FindDotnet();
-        var sdkVersions = new Dictionary<(string, string), int>();
+        var executable = registerMcp ? ResolveSerena() : null;
+        var defaultDotnet = registerMcp ? FindDotnet() : null;
+        var sdkVersions = new Dictionary<string, int>();
         var urls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var previews = new Dictionary<SetupFiles.Snapshot, string>();
-        for (var i = 0; i < selected.Length; i++)
+        for (var i = 0; defaultDotnet is not null && executable is not null && i < launches.Length; i++)
         {
             var target = selected[i];
             var config = ReadConfig(target);
             var old = launches[i];
             var dotnet = old is { Version: not null } ? old.Command : defaultDotnet;
-            var cwd = Environment.CurrentDirectory;
-            if (!sdkVersions.TryGetValue((dotnet, cwd), out var major))
-            {
-                var sdk = RunCommand(dotnet, ["--version"], cwd).Trim();
-                if (!int.TryParse(sdk.Split('.')[0], out major) || major < 10)
-                    throw new InvalidOperationException(LocalText("DotnetRequired", dotnet));
-                sdkVersions.Add((dotnet, cwd), major);
-            }
+            if (!sdkVersions.TryGetValue(dotnet, out var major))
+                sdkVersions.Add(dotnet, major = ReadSdkMajor(dotnet));
 
-            var execOptions = old?.ExecOptions.Where(option => option != "--yes") ?? [];
-            string[] options = major >= 11 ? ["--yes", .. execOptions] : [.. execOptions];
             var mcpArgs = old?.McpArgs ?? [];
-            string[] desired = ["tool", "exec", Package + Version, .. options, "--", "mcp", .. mcpArgs];
+            var desired = BuildLaunchArgs(major, old?.ExecOptions ?? [], mcpArgs);
             if (old?.Command != dotnet || !config.ReadLaunch().Args.SequenceEqual(desired) ||
                 !config.HasConfiguredExecutable(executable))
             {
@@ -170,8 +193,7 @@ internal static class HarnessSetup
                 file.Set(updated);
                 if (file.Changed)
                 {
-                    string[] managedArgs = ["tool", "exec", Package + Version, .. options.Where(option => option == "--yes"),
-                        "--", "mcp", .. mcpArgs];
+                    var managedArgs = BuildLaunchArgs(major, [], mcpArgs);
                     var managedClaude = claude is null ? null : new JsonObject { ["type"] = "stdio" };
                     previews[file] = new HarnessConfig(null, target.Format)
                         .SetLaunch(target.Format, dotnet, managedArgs, executable, managedClaude);
@@ -182,11 +204,17 @@ internal static class HarnessSetup
                 state.Registrations.Add(target);
         }
 
-        foreach (var group in groups)
+        if (groups.Length > 0)
         {
-            files.Read(group.Key).Set(skill);
-            state.Skills.RemoveAll(item => PoolSettings.PathComparer.Equals(item.Path, group.Key));
-            state.Skills.Add(new(group.Key, Version, skill));
+            using var stream = typeof(HarnessSetup).Assembly.GetManifestResourceStream("SerenaPool.Skill")!;
+            using var reader = new StreamReader(stream);
+            var skill = reader.ReadToEnd();
+            foreach (var group in groups)
+            {
+                files.Read(group.Key).Set(skill);
+                state.Skills.RemoveAll(item => PoolSettings.PathComparer.Equals(item.Path, group.Key));
+                state.Skills.Add(new(group.Key, Version, skill));
+            }
         }
         state.Registrations.Sort((left, right) => StringComparer.Ordinal.Compare(left.Id + left.Config, right.Id + right.Config));
         state.Skills.Sort((left, right) => StringComparer.Ordinal.Compare(left.Path, right.Path));
@@ -199,8 +227,12 @@ internal static class HarnessSetup
         {
             Console.WriteLine();
             Console.WriteLine(target.Id);
-            Console.WriteLine(LocalText("McpConfigLine", target.Config));
-            Console.WriteLine($"  Skill       {target.Skill}");
+            if (registerMcp)
+                Console.WriteLine(LocalText("McpConfigLine", target.Config));
+            if (installSkill)
+                Console.WriteLine($"  Skill       {target.Skill}");
+            if (!registerMcp)
+                continue;
             var file = ConfigFile(target);
             if (!previews.TryGetValue(file, out var preview))
             {
@@ -215,6 +247,8 @@ internal static class HarnessSetup
                 Console.WriteLine($"    {line.TrimEnd('\r')}");
         }
 
+        if (executable is null)
+            return;
         Console.WriteLine();
         Console.WriteLine(LocalText("RuntimeDetails"));
         Console.WriteLine($"  Serena      {executable}");
@@ -224,6 +258,13 @@ internal static class HarnessSetup
 
     private static bool SameUtf8File(SetupFiles.Snapshot file, string content) =>
         file.Original.AsSpan().SequenceEqual(Encoding.UTF8.GetBytes(content));
+
+    private static string ResolveSerena()
+    {
+        var executable = new PoolSettings { Executable = Environment.GetEnvironmentVariable("Pool__Executable") }.ResolveExecutable();
+        ValidateSerena(executable);
+        return executable;
+    }
 
     private static void ValidateSerena(string executable)
     {
@@ -251,6 +292,18 @@ internal static class HarnessSetup
             return Path.GetFullPath(path);
         return PoolSettings.FindOnPath(name) ?? throw new FileNotFoundException(LocalText("DotnetNotFound", name));
     }
+
+    private static int ReadSdkMajor(string dotnet)
+    {
+        var sdk = RunCommand(dotnet, ["--version"], Environment.CurrentDirectory).Trim();
+        if (!int.TryParse(sdk.Split('.')[0], out var major) || major < 10)
+            throw new InvalidOperationException(LocalText("DotnetRequired", dotnet));
+        return major;
+    }
+
+    private static string[] BuildLaunchArgs(int sdkMajor, string[] execOptions, string[] mcpArgs) =>
+        ["tool", "exec", Package + Version, .. (sdkMajor >= 11 ? new[] { "--yes" } : []),
+            .. execOptions.Where(option => option != "--yes"), "--", "mcp", .. mcpArgs];
 
     private static JsonObject PrepareClaude(string dotnet, string[] args)
     {
@@ -338,7 +391,7 @@ internal static class HarnessSetup
 
     private static void PrintUsage(Target[] targets)
     {
-        Console.WriteLine("serena-pool setup [harness ...]");
+        Console.WriteLine(Usage);
         for (var i = 0; i < targets.Length; i++)
         {
             var target = targets[i];
@@ -349,12 +402,15 @@ internal static class HarnessSetup
 
     internal sealed record Target(string Id, string Executable, string Format, string Config, string Skill)
     {
-        public Target ResolvePaths()
+        public Target ResolvePaths(bool registerMcp, bool installSkill)
         {
-            var skillFile = Skill;
-            if (new FileInfo(skillFile).LinkTarget is not null)
-                throw new IOException(LocalText("RegularSkillRequired", skillFile));
-            return this with { Config = SetupFiles.PhysicalPath(Config), Skill = SetupFiles.PhysicalPath(skillFile) };
+            if (installSkill && new FileInfo(Skill).LinkTarget is not null)
+                throw new IOException(LocalText("RegularSkillRequired", Skill));
+            return this with
+            {
+                Config = registerMcp ? SetupFiles.PhysicalPath(Config) : Config,
+                Skill = installSkill ? SetupFiles.PhysicalPath(Skill) : Skill
+            };
         }
     }
 

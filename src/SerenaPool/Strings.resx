@@ -9,6 +9,7 @@
   <data name="BackupRetained" xml:space="preserve"><value>The original configuration backup is at {0}</value></data>
   <data name="BridgeStartupHint" xml:space="preserve"><value>Check the background process environment or try another port with --urls.</value></data>
   <data name="CallToolDescription" xml:space="preserve"><value>Run Python code in the acquired Serena REPL. Use s.lsp for symbols and s.info for API help. Variables persist within this lease.</value></data>
+  <data name="ChooseSetupAction" xml:space="preserve"><value>  1. Install skill and register MCP&#10;  2. Install skill only&#10;  3. Register MCP only&#10;  4. Print MCP JSON&#10;Choose an action (1–4, or press Enter to cancel): </value></data>
   <data name="ChooseTargets" xml:space="preserve"><value>Choose clients (separate with spaces or commas, or press Enter to cancel): </value></data>
   <data name="ClaudeNativeRequired" xml:space="preserve"><value>The Claude Code npm command has no matching claude.exe. Install native Claude Code.</value></data>
   <data name="ClaudeNotFound" xml:space="preserve"><value>The Claude Code command claude is not on PATH.</value></data>
@@ -90,6 +91,7 @@
   <data name="InvalidInstanceId" xml:space="preserve"><value>Invalid instance_id.</value></data>
   <data name="InvalidJsonPath" xml:space="preserve"><value>Invalid JSON configuration path: {0}.</value></data>
   <data name="InvalidMcpArgs" xml:space="preserve"><value>The MCP command and arguments must be strings.</value></data>
+  <data name="InvalidSetupAction" xml:space="preserve"><value>Unknown setup action {0}. Choose a number from 1 to 4.</value></data>
   <data name="InvalidSetupState" xml:space="preserve"><value>Invalid setup state: {0}.</value></data>
   <data name="InvalidWorkdir" xml:space="preserve"><value>workdir must be an absolute path to an existing directory.</value></data>
   <data name="JsonObjectRequired" xml:space="preserve"><value>The JSON entry {0} must be an object.</value></data>

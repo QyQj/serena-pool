@@ -10,7 +10,7 @@ Serena Pool lets multiple local MCP clients and coding agents share [Serena](htt
 - **Isolated REPL sessions (`leases`)**: Every `acquire(workdir)` opens a separate Serena REPL session with a private `instance_id`, keeping Python variables isolated per agent without duplicating language servers. Variables persist for the lifetime of the lease even if other agents repeatedly acquire and release the same worker.
 - **Serialized per-worker execution**: Calls targeting the same directory are queued and executed sequentially through a per-worker gate, preventing concurrent REPL or LSP state collisions.
 - **Shared `stdio` pool**. Each client has its own bridge to the shared core over a local named pipe.
-- **One-command setup for 7 clients**: `serena-pool setup` registers the `serena-pool` MCP server and installs the companion `serena-pool` skill with pre-write conflict checks and atomic rollback.
+- **Setup for 7 clients**: `serena-pool setup` can install the companion skill, register the MCP server, or print stdio MCP JSON for a gateway such as Moor.
 - **Local Web dashboard**: Monitor worker status, PIDs, queues, errors, and leases at `http://127.0.0.1:32980/`, release stale leases, and recycle idle workers. On Windows, open the dashboard from the notification area.
 - **Process-tree cleanup**: Contains spawned Serena and language server processes in a Windows Job Object (`KILL_ON_JOB_CLOSE`) on Windows or a dedicated POSIX process group with a parent-watching launcher on Linux and macOS.
 
@@ -32,7 +32,7 @@ Browser ── HTTP ── Dashboard ── Admin pipe ──┘
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) or newer (includes the ASP.NET Core 10 runtime).
 - [Serena](https://github.com/oraios/serena) with REPL interface support (`--agent-interface repl`, exposing `initial_instructions` and `serena_repl`).
 - Serena Pool reads the required session parameter from the `serena_repl` schema at worker startup. Serena 2.0.0 declares `session_id` and Serena 2.1.0 declares `session`. MCP clients pass the Pool lease as `instance_id`.
-- Install `serena` (`serena.exe` on Windows). `setup` checks `PATH` and user installation directories, or accepts `Pool__Executable` as an explicit executable path or containing directory.
+- Install `serena` (`serena.exe` on Windows) to register or export MCP configuration. `setup` checks `PATH` and user installation directories, or accepts `Pool__Executable` as an explicit executable path or containing directory.
 
 ## Installation & Quick Setup
 
@@ -60,19 +60,30 @@ serena-pool setup codex
 
 ### Upgrading
 
-To upgrade from an earlier version, run `setup` from `0.2.0` for each configured client. For Codex:
+To upgrade from an earlier version, run `setup` from `0.3.0` for each configured client. For Codex:
 
 ```sh
-dotnet tool exec SerenaPool@0.2.0 -- setup codex
+dotnet tool exec SerenaPool@0.3.0 -- setup codex
 ```
 
-Include all installed clients that share the same skill directory in the same command, for example `setup codex cursor`. If you prefer using the global command, first run `dotnet tool update --global SerenaPool --version 0.2.0`, then run `serena-pool setup codex`.
+Include all installed clients that share the same skill directory in the same command, for example `setup codex cursor`. If you prefer using the global command, first run `dotnet tool update --global SerenaPool --version 0.3.0`, then run `serena-pool setup codex`.
 
 Release active leases and close clients connected to the old shared pool. After the old background process exits, start a new client session. Updating the installed command alone does not change the pinned client configurations. Migrate clients configured with an HTTP `/mcp` URL to stdio.
 
-### Supported Clients (`setup`)
+### Setup Options
 
-Pass one or more client IDs after `setup` (e.g., `serena-pool setup codex cursor`), or omit arguments in an interactive terminal to choose from a detected list:
+Run `serena-pool setup` in a terminal to choose an action. For installation, select clients from the list or pass one or more IDs on the command line.
+
+| Command | Action |
+| --- | --- |
+| `serena-pool setup codex` | Install the skill and register MCP in Codex. |
+| `serena-pool setup --skill-only codex` | Install the Codex skill. Requires only the Serena Pool tool. |
+| `serena-pool setup --mcp-only codex` | Register or update the Codex MCP entry. |
+| `serena-pool setup --mcp-json` | Print an importable `mcpServers` JSON document to stdout with the pinned package version and absolute executable paths. Writes no setup files. |
+
+To let Moor manage Serena Pool, install the skill with `setup --skill-only codex` and paste the output of `setup --mcp-json` into Moor under **Servers → Import JSON**. Connect Codex to Moor's MCP endpoint. [Moor setup guide](https://github.com/varandrew/moor#quickstart)
+
+### Supported Clients (`setup`)
 
 | Client ID | MCP Registration Target | Skill Path | Notes |
 | --- | --- | --- | --- |
@@ -87,13 +98,13 @@ Pass one or more client IDs after `setup` (e.g., `serena-pool setup codex cursor
 `setup` checks all selected targets before modifying any files:
 - Deduplicates shared skill paths (for example, `codex`, `cursor`, `copilot`, `opencode`, and `gemini-cli` share `~/.agents/skills/serena-pool/SKILL.md`) and tracks managed state in `~/.serena-pool/setup.json`.
 - Preserves existing unrelated MCP entries and any custom `--urls` flags already configured for `serena-pool`. In Codex, setup adds the Serena Pool child table under the existing `[mcp_servers]` table.
-- Aborts before writing if it finds a conflicting external `serena-pool` entry, a locally edited skill file, or another registered client sharing the same skill path on a different `SerenaPool` version (in which case, upgrade those clients together).
-- Runs the selected Serena executable to check REPL support before writing client files.
+- Checks for external `serena-pool` entries when registering MCP and locally edited skill files when installing skills. When doing both, setup also checks for version conflicts with other registered clients sharing the same skill path.
+- Runs the selected Serena executable to check REPL support before registering MCP or printing JSON.
 - Writes the absolute Serena path as `Pool__Executable` in each MCP entry and removes legacy Serena Pool credential settings from existing managed entries.
 - Backs up an existing MCP configuration before modifying it. Backup filenames end in `.SerenaPool` and receive a numbered suffix before that extension if the name is taken.
 - Rolls back atomically if any file write fails mid-operation.
 
-After setup finishes, it prints the package version, each registered config and skill path, the managed MCP settings written, any backup path, and the runtime addresses. Start a new session in your client to load the MCP server and skill.
+After setup installs a skill or registers MCP, it prints the package version and the paths for the selected action. MCP registration also reports any changed managed settings, backup paths, and runtime addresses. Start a new client session to load the changes.
 
 ## Connecting & Managing
 
@@ -102,7 +113,8 @@ After setup finishes, it prints the package version, each registered config and 
 ```sh
 serena-pool mcp [--urls http://127.0.0.1:32980]
 serena-pool dashboard [--urls http://127.0.0.1:32980]
-serena-pool setup [harness ...]
+serena-pool setup [--skill-only | --mcp-only] [harness ...]
+serena-pool setup --mcp-json
 serena-pool --help
 ```
 
@@ -201,7 +213,7 @@ dotnet build SerenaPool.slnx -c Release
 dotnet pack src/SerenaPool -c Release
 
 # Verify the locally packed tool
-dotnet tool exec SerenaPool@0.2.0 --source src/SerenaPool/bin/Release -- --help
+dotnet tool exec SerenaPool@0.3.0 --source src/SerenaPool/bin/Release -- --help
 
 # Run the end-to-end smoke test against a writable temporary directory
 dotnet run --project tests/SerenaPool.Smoke -c Release -- "<absolute-path-to-writable-temp-dir>"

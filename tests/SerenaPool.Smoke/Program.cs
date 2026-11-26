@@ -303,15 +303,20 @@ static async Task CheckCodexSetup(string binary, string sandbox, CancellationTok
 
     var start = new ProcessStartInfo(binary)
     {
-        UseShellExecute = false, CreateNoWindow = true, ArgumentList = { "setup", "codex" },
+        UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = home,
         RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = System.Text.Encoding.UTF8
     };
     foreach (var name in new[] { "HOME", "USERPROFILE", "CODEX_HOME", "COPILOT_HOME", "XDG_CONFIG_HOME", "GEMINI_CLI_HOME" })
         start.Environment[name] = home;
     start.Environment.Remove("OPENCODE_CONFIG");
+    start.Environment["SERENA_HOME"] = Path.Combine(home, ".serena");
     start.Environment["SERENA_POOL_LANGUAGE"] = "en";
-    async Task<string> RunSetup()
+    async Task<string> RunSetup(params string[] arguments)
     {
+        start.ArgumentList.Clear();
+        start.ArgumentList.Add("setup");
+        foreach (var argument in arguments)
+            start.ArgumentList.Add(argument);
         using var setup = Process.Start(start)!;
         var output = setup.StandardOutput.ReadToEndAsync(ct);
         var errors = setup.StandardError.ReadToEndAsync(ct);
@@ -320,7 +325,16 @@ static async Task CheckCodexSetup(string binary, string sandbox, CancellationTok
         return await output;
     }
 
-    var summary = await RunSetup();
+    var json = JsonNode.Parse(await RunSetup("--mcp-json"))!["mcpServers"]!["serena-pool"]!;
+    var launchArgs = json["args"]!.AsArray().Select(arg => arg!.GetValue<string>()).ToArray();
+    Check(json["type"]!.GetValue<string>() == "stdio" && Path.IsPathFullyQualified(json["command"]!.GetValue<string>()) &&
+        launchArgs is ["tool", "exec", var package, .., "--", "mcp"] && package.StartsWith("SerenaPool@", StringComparison.Ordinal) &&
+        Path.IsPathFullyQualified(json["env"]!["Pool__Executable"]!.GetValue<string>()), "setup prints importable stdio JSON");
+    Check(!Directory.Exists(Path.Combine(home, ".agents")) && !Directory.Exists(Path.Combine(home, ".serena-pool")) &&
+        (await File.ReadAllBytesAsync(config, ct)).SequenceEqual(original),
+        "JSON export does not write skill, setup state, or MCP files");
+
+    var summary = await RunSetup("codex");
     var backup = config + ".1.SerenaPool";
     Check((await File.ReadAllBytesAsync(backup, ct)).SequenceEqual(original) &&
         await File.ReadAllTextAsync(priorBackup, ct) == "existing backup", "setup preserves both backups");
@@ -338,11 +352,25 @@ static async Task CheckCodexSetup(string binary, string sandbox, CancellationTok
         command = "example"
         """.ReplaceLineEndings("\r\n") + "\r\n";
     await File.WriteAllTextAsync(config, existingParent, ct);
-    await RunSetup();
+    var skillPath = Path.Combine(home, ".agents", "skills", "serena-pool", "SKILL.md");
+    var skill = await File.ReadAllTextAsync(skillPath, ct);
+    await File.WriteAllTextAsync(skillPath, "locally edited skill", ct);
+    var mcpOnly = await RunSetup("--mcp-only", "codex");
     var appended = await File.ReadAllTextAsync(config, ct);
     Check(appended.StartsWith(existingParent, StringComparison.Ordinal) &&
         appended.Split('\n').Count(line => line.StartsWith("[mcp_servers]", StringComparison.Ordinal)) == 1 &&
         appended.Contains("[mcp_servers.serena-pool]"), "setup adds only the Codex child table");
+    Check(await File.ReadAllTextAsync(skillPath, ct) == "locally edited skill" && !mcpOnly.Contains(skillPath),
+        "MCP-only setup leaves the skill alone");
+
+    File.Delete(skillPath);
+    const string invalidConfig = "invalid = [";
+    await File.WriteAllTextAsync(config, invalidConfig, ct);
+    start.Environment["Pool__Executable"] = Path.Combine(home, "missing-serena");
+    var skillOnly = await RunSetup("--skill-only", "codex", "cursor");
+    Check(await File.ReadAllTextAsync(skillPath, ct) == skill && await File.ReadAllTextAsync(config, ct) == invalidConfig &&
+        !File.Exists(Path.Combine(home, ".cursor", "mcp.json")) && !skillOnly.Contains(config),
+        "skill-only setup installs the shared skill without reading or creating MCP configs or running Serena");
 }
 
 static async Task CheckColdStdio(string binary, string sandbox, string project, CancellationToken ct)

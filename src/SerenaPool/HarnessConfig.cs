@@ -87,7 +87,7 @@ internal sealed class HarnessConfig
             {
                 value["command"] = command;
                 value["args"] = ArrayNode(args);
-                if (format is "cursor" or "copilot")
+                if (format is "cursor" or "copilot" or "stdio")
                     value["type"] = "stdio";
                 if (format == "copilot")
                     value["tools"] = ArrayNode(["*"]);

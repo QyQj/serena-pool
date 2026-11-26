@@ -9,6 +9,7 @@
   <data name="BackupRetained" xml:space="preserve"><value>原配置备份保留于 {0}</value></data>
   <data name="BridgeStartupHint" xml:space="preserve"><value>请检查后台启动环境或用 --urls 试用其他端口。</value></data>
   <data name="CallToolDescription" xml:space="preserve"><value>在领用的 Serena REPL 中执行 Python 代码。用 s.lsp 检索符号，用 s.info 查看 API 帮助。变量在当前领用中持续有效。</value></data>
+  <data name="ChooseSetupAction" xml:space="preserve"><value>  1. 安装 Skill 并注册 MCP&#10;  2. 仅安装 Skill&#10;  3. 仅注册 MCP&#10;  4. 输出 MCP JSON&#10;请选择操作（1–4，回车取消）：</value></data>
   <data name="ChooseTargets" xml:space="preserve"><value>请选择目标（用空格或逗号分隔，回车取消）：</value></data>
   <data name="ClaudeNativeRequired" xml:space="preserve"><value>Claude Code 的 npm 命令没有对应的 claude.exe。请安装原生 Claude Code。</value></data>
   <data name="ClaudeNotFound" xml:space="preserve"><value>PATH 中找不到 Claude Code 命令 claude。</value></data>
@@ -90,6 +91,7 @@
   <data name="InvalidInstanceId" xml:space="preserve"><value>instance_id 无效。</value></data>
   <data name="InvalidJsonPath" xml:space="preserve"><value>JSON 配置路径无效：{0}。</value></data>
   <data name="InvalidMcpArgs" xml:space="preserve"><value>MCP 程序和参数必须为字符串。</value></data>
+  <data name="InvalidSetupAction" xml:space="preserve"><value>无效的安装操作 {0}。请选择 1 到 4。</value></data>
   <data name="InvalidSetupState" xml:space="preserve"><value>安装记录无效：{0}。</value></data>
   <data name="InvalidWorkdir" xml:space="preserve"><value>workdir 必须是已存在目录的绝对路径。</value></data>
   <data name="JsonObjectRequired" xml:space="preserve"><value>JSON 项 {0} 必须为对象。</value></data>

@@ -19,8 +19,8 @@ if (args.Length == 0 || args is ["--help"] or ["-h"])
     Console.WriteLine($"""
         serena-pool mcp [--urls {PoolSettings.DefaultAddress}]
         serena-pool dashboard [--urls {PoolSettings.DefaultAddress}]
-        serena-pool setup [harness ...]
         """);
+    Console.WriteLine(HarnessSetup.Usage);
     return 0;
 }
 
