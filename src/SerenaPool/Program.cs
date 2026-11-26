@@ -68,6 +68,9 @@ try
 
     await using var app = builder.Build();
     app.Use(LocalAccess.Invoke);
+    var pool = app.Services.GetRequiredService<InstancePool>();
+    app.UseWhen(context => context.Request.Path.StartsWithSegments("/mcp"),
+        branch => branch.Use(pool.TrackHttpRequestAsync));
     app.MapMcp("/mcp");
     if (settings.WebDashboard)
         WebDashboard.Configure(app, address, settings.WebDashboardOpenOnLaunch);

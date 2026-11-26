@@ -105,6 +105,7 @@
   <data name="PoolAddressOccupied" xml:space="preserve"><value>地址 {0} 已被占用。请关闭占用进程，或用 mcp --urls 指定其他本机端口。</value></data>
   <data name="PoolConnectFailed" xml:space="preserve"><value>无法连接 Serena Pool（{0}）。{1}</value></data>
   <data name="PositiveTimeoutsRequired" xml:space="preserve"><value>IdleTimeout 和 LeaseTimeout 必须大于零。</value></data>
+  <data name="SessionManagementFailed" xml:space="preserve"><value>Serena 无法管理领用会话：{0}</value></data>
   <data name="ProjectSessionUnverified" xml:space="preserve"><value>无法确认 Serena 会话与活动项目目录。请检查本机 Serena 版本与项目配置。</value></data>
   <data name="RegistrationFailed" xml:space="preserve"><value>无法生成 {0} 的 MCP 注册。</value></data>
   <data name="RegularSkillRequired" xml:space="preserve"><value>Skill 必须是普通文件：{0}。</value></data>

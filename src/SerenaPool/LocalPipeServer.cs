@@ -9,6 +9,7 @@ namespace SerenaPool;
 internal sealed class LocalPipeServer(IServer web, IHostApplicationLifetime lifetime, IServiceProvider services,
     IOptions<McpServerOptions> options, InstancePool pool, ILogger<LocalPipeServer> log) : BackgroundService
 {
+    private static readonly TimeSpan IdleCheckInterval = TimeSpan.FromSeconds(15);
     private int connections;
 
     protected override async Task ExecuteAsync(CancellationToken stop)
@@ -23,12 +24,12 @@ internal sealed class LocalPipeServer(IServer web, IHostApplicationLifetime life
             var pipe = new NamedPipeServerStream(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
                 PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop);
-            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            timeout.CancelAfter(IdleCheckInterval);
             try { await pipe.WaitForConnectionAsync(timeout.Token); }
             catch (OperationCanceledException) when (!stop.IsCancellationRequested)
             {
                 pipe.Dispose();
-                if (Volatile.Read(ref connections) == 0 && pool.Snapshot().Length == 0) lifetime.StopApplication();
+                if (Volatile.Read(ref connections) == 0 && pool.IsHostIdle(IdleCheckInterval)) lifetime.StopApplication();
                 continue;
             }
             catch { pipe.Dispose(); throw; }

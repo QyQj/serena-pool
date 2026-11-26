@@ -105,6 +105,7 @@
   <data name="PoolAddressOccupied" xml:space="preserve"><value>Address {0} is in use. Close the process using it or specify another local port with mcp --urls.</value></data>
   <data name="PoolConnectFailed" xml:space="preserve"><value>Cannot connect to Serena Pool ({0}). {1}</value></data>
   <data name="PositiveTimeoutsRequired" xml:space="preserve"><value>IdleTimeout and LeaseTimeout must be greater than zero.</value></data>
+  <data name="SessionManagementFailed" xml:space="preserve"><value>Serena could not manage the lease sessions: {0}</value></data>
   <data name="ProjectSessionUnverified" xml:space="preserve"><value>Cannot verify the Serena session and active project directory. Check the installed Serena version and project configuration.</value></data>
   <data name="RegistrationFailed" xml:space="preserve"><value>Cannot generate the MCP registration for {0}.</value></data>
   <data name="RegularSkillRequired" xml:space="preserve"><value>The skill must be a regular file: {0}.</value></data>

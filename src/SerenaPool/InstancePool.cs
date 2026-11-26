@@ -21,6 +21,7 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
         public readonly SemaphoreSlim Gate = new(1);
         public readonly DateTimeOffset Started = DateTimeOffset.UtcNow;
         public readonly Dictionary<Guid, Lease> Leases = [];
+        public readonly List<string> RetiredSessions = [];
         public DateTimeOffset LastActivity = DateTimeOffset.UtcNow;
         public SerenaProcess? Backend;
         public int Queued;
@@ -53,6 +54,29 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
     private readonly Dictionary<Guid, Lease> leases = [];
     private readonly Queue<CallLog> calls = new(CallHistoryCapacity);
     private long nextNumber;
+    private int httpRequests;
+    private long lastHttpCompletion;
+
+    public async Task TrackHttpRequestAsync(HttpContext context, RequestDelegate next)
+    {
+        lock (sync) httpRequests++;
+        try { await next(context); }
+        finally
+        {
+            lock (sync)
+            {
+                httpRequests--;
+                lastHttpCompletion = Stopwatch.GetTimestamp();
+            }
+        }
+    }
+
+    public bool IsHostIdle(TimeSpan interval)
+    {
+        lock (sync)
+            return workers.Count == 0 && httpRequests == 0 &&
+                Stopwatch.GetElapsedTime(lastHttpCompletion) >= interval;
+    }
 
     public Task<Acquisition> AcquireAsync(string workdir, CancellationToken token)
     {
@@ -76,9 +100,13 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
                 lock (sync) worker.Backend = backend;
             }
             var (session, instructions) = await worker.Backend.OpenSessionAsync(path, lifetime.ApplicationStopping);
-            token.ThrowIfCancellationRequested();
             lock (sync)
             {
+                if (token.IsCancellationRequested)
+                {
+                    worker.RetiredSessions.Add(session);
+                    token.ThrowIfCancellationRequested();
+                }
                 var id = Guid.NewGuid();
                 var lease = new Lease(worker, session, ++nextNumber);
                 worker.Leases.Add(id, lease);
@@ -124,14 +152,19 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
         {
             await worker.Gate.WaitAsync(waiting.Token);
             entered = true;
+            string[] retired;
             lock (sync)
             {
                 waiting.Token.ThrowIfCancellationRequested();
                 if (worker.Failed) throw new McpException(LocalText("FailedWorker"));
                 worker.Queued--;
                 worker.Running = started = true;
+                retired = worker.RetiredSessions.ToArray();
+                worker.RetiredSessions.Clear();
             }
             if (worker.Backend?.HasExited == true) throw new IOException(LocalText("SerenaDisconnected"));
+            if (retired.Length > 0)
+                await worker.Backend!.CloseSessionsAsync(retired, lifetime.ApplicationStopping);
             return await operation();
         }
         catch (OperationCanceledException) when (waiting.IsCancellationRequested && !lifetime.ApplicationStopping.IsCancellationRequested)
@@ -183,6 +216,7 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
     {
         if (!leases.Remove(id, out var lease)) return false;
         lease.Worker.Leases.Remove(id);
+        lease.Worker.RetiredSessions.Add(lease.Session);
         lease.Released.Cancel();
         lease.Worker.LastActivity = DateTimeOffset.UtcNow;
         return true;

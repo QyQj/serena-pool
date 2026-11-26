@@ -12,6 +12,24 @@ internal sealed partial class SerenaProcess(
     string? telemetryMarker) : IAsyncDisposable
 {
     private bool telemetryAttempted;
+    private string controlSession = "";
+
+    // Serena's default registry evicts sessions independently of the pool's lease lifetime.
+    private const string InstallLeaseSessions = """
+        from uuid import uuid4
+        from serena.session import SerenaSession
+
+        sessions = {s._current_session.session_id: s._current_session}
+        def create_session():
+            session = SerenaSession(uuid4().hex)
+            sessions[session.session_id] = session
+            return session
+
+        method = s.get_enabled_methods()[0].get_implementation_()
+        agent = method.__self__._agent
+        agent.create_session = create_session
+        agent.get_session = sessions.__getitem__
+        """;
 
     public int Pid => server.Id;
     public bool HasExited => server.HasExited || client.Completion.IsCompleted;
@@ -92,8 +110,11 @@ internal sealed partial class SerenaProcess(
                     .Where(name => name is "session" or "session_id")
                     .ToArray() is not [string sessionParameter])
                 throw new McpException(LocalText("UnsupportedReplSessionParameter"));
-            return new(launcher, Terminate, server, client, sessionParameter,
+            var backend = new SerenaProcess(launcher, Terminate, server, client, sessionParameter,
                 settings.WebDashboard ? "\nserena-pool-usage-" + Guid.NewGuid().ToString("N") + ":" : null);
+            (backend.controlSession, _) = await backend.OpenSessionAsync(directory, token);
+            await backend.RunControlAsync(InstallLeaseSessions, token);
+            return backend;
         }
         catch (Exception ex)
         {
@@ -138,6 +159,17 @@ internal sealed partial class SerenaProcess(
         }
         var result = await SendAsync(session, code, token);
         return (result, telemetryMarker is null ? null : ReplTelemetry.Extract(result, telemetryMarker));
+    }
+
+    public Task CloseSessionsAsync(string[] sessions, CancellationToken token) =>
+        RunControlAsync($"for key in {JsonSerializer.Serialize(sessions)}:\n    del sessions[key]", token);
+
+    private async Task RunControlAsync(string code, CancellationToken token)
+    {
+        var result = await SendAsync(controlSession, code + "\n'ok'", token);
+        if (telemetryMarker is not null) ReplTelemetry.Extract(result, telemetryMarker);
+        var output = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(t => t.Text));
+        if (result.IsError == true || output != "ok") throw new McpException(LocalText("SessionManagementFailed", output));
     }
 
     private ValueTask<CallToolResult> SendAsync(string session, string code, CancellationToken token) =>

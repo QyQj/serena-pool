@@ -136,7 +136,14 @@ try
         { ["instance_id"] = ids[0], ["code"] = "marker = 731\nmarker" }, cancellationToken: ct);
     Check(fromStdio.IsError != true && Text(fromStdio).Contains("731"), "stdio executes Python with the lease acquired via HTTP");
     Check(Text(await Call(ids[1], "'independent' if 'marker' not in globals() else 'contaminated'")).Contains("independent"), "independent namespace");
-    Check(Text(await Call(ids[0], "marker")).Contains("731"), "persisted namespace");
+    // Serena's default registry evicts the oldest of 100 sessions, including live leases.
+    for (var i = 0; i < 100; i++)
+    {
+        var shortLease = await Acquire(primary);
+        var releasedShort = await Tool("release", ("instance_id", shortLease));
+        Check(releasedShort.IsError != true && bool.Parse(Text(releasedShort)), "release short lease");
+    }
+    Check(Text(await Call(ids[0], "marker")) == "731", "long lease retains its namespace across 100 short leases");
     var observedCall = await Call(ids[0], """
         ignored = "s.fs.read_file('dashboard-private-source')"
         inspect_api = getattr(s, "info")
@@ -340,29 +347,43 @@ static async Task CheckColdStdio(string binary, string sandbox, string project, 
         }
     }), cancellationToken: ct);
     var clients = await Task.WhenAll(Connect(), Connect());
-    await using (var second = clients[1])
+    using var http = new HttpClient { BaseAddress = new Uri(url) };
+    await using (var httpClient = await McpClient.CreateAsync(new HttpClientTransport(new()
     {
-        using var http = new HttpClient { BaseAddress = new Uri(url) };
+        Endpoint = new Uri(http.BaseAddress, "/mcp"), TransportMode = HttpTransportMode.StreamableHttp
+    }, http), cancellationToken: ct))
+    {
         foreach (var path in new[] { "/", "/app.js", "/app.css", "/favicon.ico", "/api/workers", "/api/calls" })
         {
             using var response = await http.GetAsync(path, ct);
             Check(response.StatusCode == HttpStatusCode.NotFound, $"dashboard disabled: {path}");
         }
-        await using var httpClient = await McpClient.CreateAsync(new HttpClientTransport(new()
-        {
-            Endpoint = new Uri(http.BaseAddress, "/mcp"), TransportMode = HttpTransportMode.StreamableHttp
-        }, http), cancellationToken: ct);
         Check((await httpClient.ListToolsAsync(cancellationToken: ct)).Count == 4, "HTTP MCP works with dashboard disabled");
-        string id;
-        await using (var first = clients[0])
+        await using (var second = clients[1])
         {
-            var acquired = await first.CallToolAsync("acquire", new Dictionary<string, object?> { ["workdir"] = project }, cancellationToken: ct);
-            var text = acquired.Content.OfType<TextContentBlock>().Single().Text;
-            Check(acquired.IsError != true, text);
-            id = (string)JsonNode.Parse(text)!["instance_id"]!;
+            string id;
+            await using (var first = clients[0])
+            {
+                var acquired = await first.CallToolAsync("acquire", new Dictionary<string, object?> { ["workdir"] = project }, cancellationToken: ct);
+                var text = acquired.Content.OfType<TextContentBlock>().Single().Text;
+                Check(acquired.IsError != true, text);
+                id = (string)JsonNode.Parse(text)!["instance_id"]!;
+            }
+            var released = await second.CallToolAsync("release", new Dictionary<string, object?> { ["instance_id"] = id }, cancellationToken: ct);
+            Check(released.IsError != true && bool.Parse(released.Content.OfType<TextContentBlock>().Single().Text), "independent stdio bridge lifetimes");
         }
-        var released = await second.CallToolAsync("release", new Dictionary<string, object?> { ["instance_id"] = id }, cancellationToken: ct);
-        Check(released.IsError != true && bool.Parse(released.Content.OfType<TextContentBlock>().Single().Text), "independent stdio bridge lifetimes");
+
+        var active = Stopwatch.StartNew();
+        do
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            Check((await httpClient.ListToolsAsync(cancellationToken: ct)).Count == 4, "HTTP-only client keeps the host alive");
+        } while (active.Elapsed < TimeSpan.FromSeconds(20));
+        var afterIdle = await httpClient.CallToolAsync("acquire", new Dictionary<string, object?> { ["workdir"] = project }, cancellationToken: ct);
+        Check(afterIdle.IsError != true, "HTTP-only client acquires after the host idle check");
+        var httpLease = JsonNode.Parse(afterIdle.Content.OfType<TextContentBlock>().Single().Text)!["instance_id"]!.GetValue<string>();
+        var release = await httpClient.CallToolAsync("release", new Dictionary<string, object?> { ["instance_id"] = httpLease }, cancellationToken: ct);
+        Check(release.IsError != true && bool.Parse(release.Content.OfType<TextContentBlock>().Single().Text), "release HTTP-only lease");
     }
     using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
     wait.CancelAfter(TimeSpan.FromSeconds(35));

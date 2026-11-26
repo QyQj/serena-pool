@@ -7,7 +7,7 @@ Serena Pool 让同一台电脑上的多个 MCP 客户端和编码 Agent 共用 [
 ## 核心特性
 
 - **按工作目录 / worktree 复用进程**：将 `workdir` 规范化为物理绝对路径（自动解析符号链接与目录联接），同一仓库的多个客户端共用同一个预热好的 Serena 与语言服务器进程，不同 Git worktree 并行运行、互不干扰。
-- **隔离的 REPL 会话（领用 / Lease）**：每次调用 `acquire(workdir)` 都会在 Serena 中开启独立的 REPL 会话并返回私有 `instance_id`，各 Agent 的 Python 变量命名空间相互隔离，同时避免重复启动语言服务器。
+- **隔离的 REPL 会话（领用 / Lease）**：每次调用 `acquire(workdir)` 都会在 Serena 中开启独立的 REPL 会话并返回私有 `instance_id`，各 Agent 的 Python 变量命名空间相互隔离，同时避免重复启动语言服务器。只要领用有效，其他 Agent 反复领用、释放同一实例也会保留当前领用的变量。
 - **同目录串行调度**：发往同一项目目录的调用通过实例内互斥门控排队顺序执行，防止并发操作 REPL 或 LSP 状态产生冲突。
 - **多客户端共享（`stdio` 与 Streamable HTTP）**　后台管理进程用同一个实例池处理两种连接。每条 `stdio` 连接各自通过一个桥接进程，经本机命名管道接入后台。
 - **一条命令接入 7 种客户端**：`serena-pool setup` 可同时写入 MCP 注册项并安装配套 `serena-pool` skill，支持写入前冲突检查与失败自动回滚。
@@ -32,7 +32,7 @@ Serena Pool 让同一台电脑上的多个 MCP 客户端和编码 Agent 共用 [
 1. **按需启动共享管理进程**　所有 `serena-pool mcp` 桥接进程默认使用 `http://127.0.0.1:32980`。桥接先按配置的端口连接 `serena-pool-<user>-<port>`。连接超时后，它会尝试启动脱离终端的 `--background-serve` 后台进程，并传入同一个监听地址和端口。多个进程同时启动且使用同一个回环 IP 地址和 TCP 端口时，只有一个能绑定该监听地址。同一用户在不同回环地址使用相同端口时，管道名仍相同。要运行独立的实例池，请使用不同端口。
 2. **按目录管理实例**　管道服务端与实例池运行在同一个 ASP.NET Core 后台进程中。`PoolTools` 收到 `acquire(workdir)` 后交给 `InstancePool`。如果该目录没有可用实例，`InstancePool` 会启动 Serena 工作进程（`serena start-mcp-server --transport stdio --project <workdir> --context ide --agent-interface repl --add-mode no-memories --enable-web-dashboard false --enable-gui-log-window false`）。每次领用都会在对应工作进程中新建独立的 REPL 会话。
 3. **故障隔离**：若某个 Serena 进程意外退出或中断，仅该实例被标记为 `failed` 并使其领用失效；正在执行的调用会返回“执行结果未知”错误以便调用方先核对状态再决定是否重试，其他工作目录的实例不受影响。
-4. **自动回收与空闲退出**：无活动领用在超过 `Pool__LeaseTimeout` 后自动回收（排队与执行期间暂停计时）；无领用且无待处理调用的空闲实例在超过 `Pool__IdleTimeout` 后停止。所有 `stdio` 客户端断开且全部实例回收后，自动启动的后台进程会空闲退出（命名管道每 15 秒检查一次）。
+4. **自动回收与空闲退出**：无活动领用在超过 `Pool__LeaseTimeout` 后自动回收（排队与执行期间暂停计时）；无领用且无待处理调用的空闲实例在超过 `Pool__IdleTimeout` 后停止。自动启动的后台进程每 15 秒检查一次。所有 stdio 客户端断开、全部实例回收、没有正在处理的 HTTP MCP 请求，且最近 15 秒没有 HTTP MCP 请求完成时，后台退出。
 
 ## 运行前提
 
