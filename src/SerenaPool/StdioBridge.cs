@@ -35,8 +35,8 @@ internal static class StdioBridge
             try { await pipe.ConnectAsync(10000); }
             catch (TimeoutException ex)
             {
-                var detail = Volatile.Read(ref diagnostic) ?? "请检查后台启动环境或用 --urls 试用其他端口。";
-                throw new IOException($"无法连接 Serena Pool（{address}）。{detail}", ex);
+                var detail = Volatile.Read(ref diagnostic) ?? LocalText("BridgeStartupHint");
+                throw new IOException(LocalText("PoolConnectFailed", address, detail), ex);
             }
         }
 

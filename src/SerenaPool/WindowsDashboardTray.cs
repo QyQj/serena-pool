@@ -26,7 +26,7 @@ internal static partial class WindowsDashboardTray
             if (openOnLaunch && !stopping.IsCancellationRequested)
                 WebDashboard.OpenBrowser(address);
             try { Run(address, stopping); }
-            catch (Win32Exception error) { Console.Error.WriteLine($"无法启动 Serena Pool 托盘：{error.Message}"); }
+            catch (Win32Exception error) { Console.Error.WriteLine(LocalText("TrayStartupFailed", error.Message)); }
         }) { IsBackground = true, Name = "Serena Pool Tray" };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
@@ -47,7 +47,7 @@ internal static partial class WindowsDashboardTray
         try
         {
             if (SetWindowSubclass(window, &OnMessage, 1, (nuint)GCHandle.ToIntPtr(context)) == 0)
-                throw new Win32Exception("无法注册托盘窗口的消息处理程序。");
+                throw new Win32Exception(LocalText("TrayCallbackFailed"));
 
             icon = LoadProjectIcon();
             var data = new NotifyIconData
@@ -57,11 +57,11 @@ internal static partial class WindowsDashboardTray
             };
             $"Serena Pool · {address.Authority}".AsSpan().CopyTo(new Span<char>(data.Tip, 127));
             if (ShellNotifyIcon(NimAdd, ref data) == 0)
-                throw new Win32Exception("Windows 通知区域没有接受托盘图标。");
+                throw new Win32Exception(LocalText("TrayIconRejected"));
             try
             {
                 if (ShellNotifyIcon(NimSetVersion, ref data) == 0)
-                    throw new Win32Exception("无法设置托盘图标的通知版本。");
+                    throw new Win32Exception(LocalText("TrayVersionFailed"));
 
                 using var registration = stopping.Register(() => PostMessage(window, StopMessage, 0, 0));
                 int status;

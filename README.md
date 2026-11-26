@@ -92,7 +92,7 @@ Pass one or more client IDs after `setup` (e.g., `serena-pool setup codex cursor
 
 `setup` checks all selected targets before modifying any files:
 - Deduplicates shared skill paths (for example, `codex`, `cursor`, `copilot`, `opencode`, and `gemini-cli` share `~/.agents/skills/serena-pool/SKILL.md`) and tracks managed state in `~/.serena-pool/setup.json`.
-- Preserves existing unrelated MCP entries and any custom `--urls` flags already configured for `serena-pool`.
+- Preserves existing unrelated MCP entries and any custom `--urls` flags already configured for `serena-pool`. In Codex, setup adds the Serena Pool child table under the existing `[mcp_servers]` table.
 - Aborts before writing if it finds a conflicting external `serena-pool` entry, a locally edited skill file, or another registered client sharing the same skill path on a different `SerenaPool` version (in which case, upgrade those clients together).
 - Runs the selected Serena executable to check REPL support before writing client files.
 - Writes the absolute Serena path as `Pool__Executable` in each MCP entry and removes legacy Serena Pool credential settings from existing managed entries.
@@ -174,10 +174,13 @@ To disable the page, its management API, and the tray icon, add `Pool__WebDashbo
 
 ## Environment Variables
 
+Serena Pool uses the system UI language for CLI output, native diagnostics, and MCP messages. Set `SERENA_POOL_LANGUAGE` to `en` or `zh-CN` to override it. The dashboard uses the browser language and offers a switch in its header.
+
 Set these variables in your MCP client configuration. The shared background host reads them at startup. Restart the background host after changing its configuration or upgrading the package.
 
 | Environment Variable | Default | Description |
 | --- | --- | --- |
+| `SERENA_POOL_LANGUAGE` | System UI language (English for unsupported languages) | Selects English or Simplified Chinese for CLI output and pool messages. |
 | `Pool__Executable` | Searches `PATH`, `UV_TOOL_BIN_DIR`, `XDG_BIN_HOME`, and `~/.local/bin` in order | Absolute path to the Serena executable or its containing directory. |
 | `Pool__IdleTimeout` | `00:10:00` | How long a worker stays alive after all leases are released and no calls are running or queued (must be `> 0`). |
 | `Pool__WebDashboard` | `true` | Enables the dashboard, management API, and Windows tray icon. |

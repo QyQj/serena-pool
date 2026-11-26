@@ -18,6 +18,7 @@ var start = new ProcessStartInfo(binary)
     UseShellExecute = false, CreateNoWindow = true,
     WorkingDirectory = app, ArgumentList = { "--background-serve", "--urls", url.GetLeftPart(UriPartial.Authority) }
 };
+start.Environment["SERENA_POOL_LANGUAGE"] = "zh-CN";
 start.Environment["SERENA_HOME"] = Path.Combine(sandbox, "serena-home");
 start.Environment["Pool__IdleTimeout"] = "00:00:04";
 start.Environment["Pool__WebDashboard"] = "true";
@@ -28,7 +29,7 @@ using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(4));
 var ct = deadline.Token;
 try
 {
-    await CheckInlineSetup(binary, sandbox, ct);
+    await CheckCodexSetup(binary, sandbox, ct);
     Directory.CreateDirectory(primary);
     await Git("init", "-q", primary);
     await File.WriteAllTextAsync(Path.Combine(primary, "sample.py"), "class Marker:\r\n    branch = 'primary'\r\n", ct);
@@ -68,6 +69,10 @@ try
     foreach (var path in new[] { "/", "/app.js", "/app.css" })
         Check((await http.GetStringAsync(path, ct)).Length > 0, $"embedded asset {path}");
 
+    await CheckDashboardLocale(dashboard, "en-US", null, "en", "Worker pool", "Idle", ct);
+    await CheckDashboardLocale(dashboard, "fr-FR, zh-HK;q=0.7", null, "zh-CN", "实例池", "空闲", ct);
+    await CheckDashboardLocale(dashboard, "zh-CN", "en", "en", "Worker pool", "Idle", ct);
+
     using var favicon = await http.GetAsync("/favicon.ico", ct);
     favicon.EnsureSuccessStatusCode();
     var icon = await favicon.Content.ReadAsByteArrayAsync(ct);
@@ -78,6 +83,8 @@ try
     await using var client = await McpClient.CreateAsync(transport, cancellationToken: ct);
     var tools = await client.ListToolsAsync(cancellationToken: ct);
     Check(tools.Select(t => t.Name).Order().SequenceEqual(new[] { "acquire", "call", "list", "release" }), "MCP tools");
+    Check(tools.Single(t => t.Name == "acquire").ProtocolTool.Description?.Contains("领用") == true,
+        "MCP descriptions follow the pool language");
     var stdio = new StdioClientTransport(new()
     {
         Command = binary, Arguments = ["mcp", "--urls", url.GetLeftPart(UriPartial.Authority)],
@@ -208,7 +215,24 @@ static void Check(bool condition, string message)
     if (!condition) throw new InvalidOperationException(message);
 }
 
-static async Task CheckInlineSetup(string binary, string sandbox, CancellationToken ct)
+static async Task CheckDashboardLocale(HttpClient http, string acceptLanguage, string? requested, string language,
+    string heading, string idle, CancellationToken ct)
+{
+    using var request = new HttpRequestMessage(HttpMethod.Get, requested is null ? "/" : $"/?lang={requested}");
+    request.Headers.AcceptLanguage.ParseAdd(acceptLanguage);
+    using var response = await http.SendAsync(request, ct);
+    response.EnsureSuccessStatusCode();
+    var page = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync(ct));
+    Check(response.Content.Headers.ContentLanguage.Single() == language && page.Contains($"lang=\"{language}\"") &&
+        page.Contains(heading) && page.Contains($"/app.js?lang={language}"), "dashboard language " + language);
+
+    var script = await http.GetStringAsync($"/app.js?lang={language}", ct);
+    const string prefix = "const messages = ";
+    var json = script.Split('\n').Single(line => line.StartsWith(prefix, StringComparison.Ordinal))[prefix.Length..].Trim();
+    Check(JsonNode.Parse(json.TrimEnd(';'))?["DashboardIdle"]?.GetValue<string>() == idle, "dashboard script language");
+}
+
+static async Task CheckCodexSetup(string binary, string sandbox, CancellationToken ct)
 {
     var home = Directory.CreateDirectory(Path.Combine(sandbox, "setup")).FullName;
     var config = Path.Combine(home, "config.toml");
@@ -231,21 +255,40 @@ static async Task CheckInlineSetup(string binary, string sandbox, CancellationTo
     foreach (var name in new[] { "HOME", "USERPROFILE", "CODEX_HOME", "COPILOT_HOME", "XDG_CONFIG_HOME", "GEMINI_CLI_HOME" })
         start.Environment[name] = home;
     start.Environment.Remove("OPENCODE_CONFIG");
-    using var setup = Process.Start(start)!;
-    var output = setup.StandardOutput.ReadToEndAsync(ct);
-    var errors = setup.StandardError.ReadToEndAsync(ct);
-    await setup.WaitForExitAsync(ct);
-    Check(setup.ExitCode == 0, $"setup upgrade: {await errors}");
-    var summary = await output;
+    start.Environment["SERENA_POOL_LANGUAGE"] = "en";
+    async Task<string> RunSetup()
+    {
+        using var setup = Process.Start(start)!;
+        var output = setup.StandardOutput.ReadToEndAsync(ct);
+        var errors = setup.StandardError.ReadToEndAsync(ct);
+        await setup.WaitForExitAsync(ct);
+        Check(setup.ExitCode == 0, $"setup: {await errors}");
+        return await output;
+    }
+
+    var summary = await RunSetup();
     var backup = config + ".1.SerenaPool";
     Check((await File.ReadAllBytesAsync(backup, ct)).SequenceEqual(original) &&
         await File.ReadAllTextAsync(priorBackup, ct) == "existing backup", "setup preserves both backups");
-    Check(summary.Contains(backup) && summary.Contains("[mcp_servers.serena-pool]") &&
+    Check(summary.Contains("Settings written by Serena Pool") &&
+        summary.Contains(backup) && summary.Contains("[mcp_servers.serena-pool]") &&
         summary.Contains("Pool__Executable") && !summary.Contains("private-setting"), "setup shows only its managed configuration");
     var updated = await File.ReadAllTextAsync(config, ct);
     Check(updated.Contains("SerenaPool@") && updated.Contains("30741") && updated.Contains("Pool__Executable") &&
         updated.Contains("Pool__WebDashboard = \"false\"") && updated.Contains("# dashboard setting"),
         "setup preserves inline Codex configuration");
+
+    var existingParent = """
+        [mcp_servers] # keep the existing header
+        [mcp_servers.existing]
+        command = "example"
+        """.ReplaceLineEndings("\r\n") + "\r\n";
+    await File.WriteAllTextAsync(config, existingParent, ct);
+    await RunSetup();
+    var appended = await File.ReadAllTextAsync(config, ct);
+    Check(appended.StartsWith(existingParent, StringComparison.Ordinal) &&
+        appended.Split('\n').Count(line => line.StartsWith("[mcp_servers]", StringComparison.Ordinal)) == 1 &&
+        appended.Contains("[mcp_servers.serena-pool]"), "setup adds only the Codex child table");
 }
 
 static async Task CheckColdStdio(string binary, string sandbox, string project, CancellationToken ct)

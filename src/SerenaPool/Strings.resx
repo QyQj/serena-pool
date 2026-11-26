@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="AcquireToolDescription" xml:space="preserve"><value>Acquire a fresh Serena REPL session for an absolute checkout directory. Keep instance_id private, read the returned Serena instructions and use call.</value></data>
+  <data name="BackupLine" xml:space="preserve"><value>  Backup      {0}</value></data>
+  <data name="BackupRetained" xml:space="preserve"><value>The original configuration backup is at {0}</value></data>
+  <data name="BridgeStartupHint" xml:space="preserve"><value>Check the background process environment or try another port with --urls.</value></data>
+  <data name="CallToolDescription" xml:space="preserve"><value>Run Python code in the acquired Serena REPL. Use s.lsp for symbols and s.info for API help. Variables persist within this lease.</value></data>
+  <data name="ChooseTargets" xml:space="preserve"><value>Choose clients (separate with spaces or commas, or press Enter to cancel): </value></data>
+  <data name="ClaudeNativeRequired" xml:space="preserve"><value>The Claude Code npm command has no matching claude.exe. Install native Claude Code.</value></data>
+  <data name="ClaudeNotFound" xml:space="preserve"><value>The Claude Code command claude is not on PATH.</value></data>
+  <data name="ClaudeRegistrationMissing" xml:space="preserve"><value>Claude Code did not create the expected user-level MCP entry.</value></data>
+  <data name="ClientSeparator" xml:space="preserve"><value>, </value></data>
+  <data name="CommandFailed" xml:space="preserve"><value>{0} {1} failed (exit code {2}).</value></data>
+  <data name="CommandStartFailed" xml:space="preserve"><value>Cannot start {0}.</value></data>
+  <data name="CommandTimedOut" xml:space="preserve"><value>{0} timed out.</value></data>
+  <data name="ConcurrentConfigChange" xml:space="preserve"><value>The configuration changed during setup: {0}. Try again.</value></data>
+  <data name="ConfigLinkFailed" xml:space="preserve"><value>Cannot resolve the configuration link: {0}.</value></data>
+  <data name="ConfigPathConflict" xml:space="preserve"><value>Client configurations use the same path with incompatible formats: {0}.</value></data>
+  <data name="ConfigReadFailed" xml:space="preserve"><value>Cannot read {0} configuration at {1}: {2}</value></data>
+  <data name="ConfigUnchanged" xml:space="preserve"><value>  MCP configuration unchanged</value></data>
+  <data name="ConfiguredSerenaMissing" xml:space="preserve"><value>The Serena executable specified by Pool__Executable does not exist: {0}.</value></data>
+  <data name="DashboardAcquired" xml:space="preserve"><value>Acquired {0}</value></data>
+  <data name="DashboardActions" xml:space="preserve"><value>Actions</value></data>
+  <data name="DashboardActive" xml:space="preserve"><value>In use</value></data>
+  <data name="DashboardClose" xml:space="preserve"><value>Close details</value></data>
+  <data name="DashboardConfirmRecycle" xml:space="preserve"><value>Recycle worker #{0}?</value></data>
+  <data name="DashboardConfirmRelease" xml:space="preserve"><value>Release lease #{0}? Queued calls will be canceled.</value></data>
+  <data name="DashboardConflict" xml:space="preserve"><value>Only idle workers can be recycled.</value></data>
+  <data name="DashboardConnected" xml:space="preserve"><value>Connected</value></data>
+  <data name="DashboardConnecting" xml:space="preserve"><value>Connecting</value></data>
+  <data name="DashboardEmpty" xml:space="preserve"><value>No workers</value></data>
+  <data name="DashboardEmptyHint" xml:space="preserve"><value>Workers appear here after a client calls acquire(workdir).</value></data>
+  <data name="DashboardFailed" xml:space="preserve"><value>Connection failed</value></data>
+  <data name="DashboardHttpError" xml:space="preserve"><value>Request failed (HTTP {0}).</value></data>
+  <data name="DashboardIdle" xml:space="preserve"><value>Idle</value></data>
+  <data name="DashboardLastActivity" xml:space="preserve"><value>Last activity {0}</value></data>
+  <data name="DashboardLastError" xml:space="preserve"><value>Last error</value></data>
+  <data name="DashboardLastSync" xml:space="preserve"><value>Last synced</value></data>
+  <data name="DashboardLease" xml:space="preserve"><value>Lease #{0}</value></data>
+  <data name="DashboardLeases" xml:space="preserve"><value>Leases</value></data>
+  <data name="DashboardOpenFailed" xml:space="preserve"><value>Cannot open the Serena Pool dashboard at {0}: {1}</value></data>
+  <data name="DashboardPid" xml:space="preserve"><value>Process ID</value></data>
+  <data name="DashboardPool" xml:space="preserve"><value>Worker pool</value></data>
+  <data name="DashboardQueue" xml:space="preserve"><value>Running / Queued</value></data>
+  <data name="DashboardRecycle" xml:space="preserve"><value>Recycle now</value></data>
+  <data name="DashboardRecycleAt" xml:space="preserve"><value>Recycles at</value></data>
+  <data name="DashboardRefresh" xml:space="preserve"><value>Refresh</value></data>
+  <data name="DashboardRelease" xml:space="preserve"><value>Release</value></data>
+  <data name="DashboardStarted" xml:space="preserve"><value>Started</value></data>
+  <data name="DashboardStarting" xml:space="preserve"><value>Starting</value></data>
+  <data name="DashboardStatus" xml:space="preserve"><value>Status</value></data>
+  <data name="DashboardSummary" xml:space="preserve"><value>Workers {0} · Leases {1}</value></data>
+  <data name="DashboardTitle" xml:space="preserve"><value>Serena Pool · Dashboard</value></data>
+  <data name="DashboardView" xml:space="preserve"><value>View details</value></data>
+  <data name="DashboardWorkdir" xml:space="preserve"><value>Working directory</value></data>
+  <data name="DashboardWorker" xml:space="preserve"><value>Worker #{0}</value></data>
+  <data name="DashboardWorkerFailed" xml:space="preserve"><value>Failed</value></data>
+  <data name="DetectedClient" xml:space="preserve"><value> (detected)</value></data>
+  <data name="DotnetNotFound" xml:space="preserve"><value>{0} is not on PATH. Install the .NET SDK.</value></data>
+  <data name="DotnetRequired" xml:space="preserve"><value>.NET SDK 10 or later is required: {0}.</value></data>
+  <data name="EmptyCode" xml:space="preserve"><value>code must not be empty.</value></data>
+  <data name="ExpiredLease" xml:space="preserve"><value>The lease has expired. Call acquire again.</value></data>
+  <data name="ExternalMcpEntry" xml:space="preserve"><value>{0} ({1}) already has an external MCP entry with the same name</value></data>
+  <data name="FailedWorker" xml:space="preserve"><value>The Serena worker is unavailable. Call acquire again.</value></data>
+  <data name="FailureSeparator" xml:space="preserve"><value>, </value></data>
+  <data name="InvalidCodexEnv" xml:space="preserve"><value>Codex MCP env entries must be key-value pairs.</value></data>
+  <data name="InvalidCodexEnvVars" xml:space="preserve"><value>Codex env_vars must be an array.</value></data>
+  <data name="InvalidCodexToml" xml:space="preserve"><value>The Codex TOML configuration is invalid.</value></data>
+  <data name="InvalidInstanceId" xml:space="preserve"><value>Invalid instance_id.</value></data>
+  <data name="InvalidJsonPath" xml:space="preserve"><value>Invalid JSON configuration path: {0}.</value></data>
+  <data name="InvalidMcpArgs" xml:space="preserve"><value>The MCP command and arguments must be strings.</value></data>
+  <data name="InvalidSetupState" xml:space="preserve"><value>Invalid setup state: {0}.</value></data>
+  <data name="InvalidWorkdir" xml:space="preserve"><value>workdir must be an absolute path to an existing directory.</value></data>
+  <data name="JsonObjectRequired" xml:space="preserve"><value>The JSON entry {0} must be an object.</value></data>
+  <data name="JsonRootObjectRequired" xml:space="preserve"><value>The JSON configuration root must be an object.</value></data>
+  <data name="ListToolDescription" xml:space="preserve"><value>List local Serena workers, checkouts, public lease numbers and queued calls.</value></data>
+  <data name="LoopbackRequired" xml:space="preserve"><value>Use a loopback address with a fixed port for --urls.</value></data>
+  <data name="ManagedSettings" xml:space="preserve"><value>  Settings written by Serena Pool</value></data>
+  <data name="McpConfigLine" xml:space="preserve"><value>  MCP config  {0}</value></data>
+  <data name="McpUsage" xml:space="preserve"><value>Usage: serena-pool mcp [--urls {0}]</value></data>
+  <data name="MissingJsonPath" xml:space="preserve"><value>JSON configuration path does not exist: {0}.</value></data>
+  <data name="MissingReplTools" xml:space="preserve"><value>Serena did not provide the required REPL and initialization tools.</value></data>
+  <data name="MissingWorkerPid" xml:space="preserve"><value>The Serena launcher did not report a process ID.</value></data>
+  <data name="PoolAddressOccupied" xml:space="preserve"><value>Address {0} is in use. Close the process using it or specify another local port with mcp --urls.</value></data>
+  <data name="PoolConnectFailed" xml:space="preserve"><value>Cannot connect to Serena Pool ({0}). {1}</value></data>
+  <data name="PositiveTimeoutsRequired" xml:space="preserve"><value>IdleTimeout and LeaseTimeout must be greater than zero.</value></data>
+  <data name="ProjectSessionUnverified" xml:space="preserve"><value>Cannot verify the Serena session and active project directory. Check the installed Serena version and project configuration.</value></data>
+  <data name="RegistrationFailed" xml:space="preserve"><value>Cannot generate the MCP registration for {0}.</value></data>
+  <data name="RegularSkillRequired" xml:space="preserve"><value>The skill must be a regular file: {0}.</value></data>
+  <data name="ReleasedLease" xml:space="preserve"><value>The lease was released and the queued call was canceled.</value></data>
+  <data name="ReleaseToolDescription" xml:space="preserve"><value>Release a private instance_id. Queued calls are cancelled and an executing call may finish.</value></data>
+  <data name="RollbackIncomplete" xml:space="preserve"><value>Check these paths manually: {0}</value></data>
+  <data name="RuntimeDetails" xml:space="preserve"><value>Runtime details</value></data>
+  <data name="SerenaDisconnected" xml:space="preserve"><value>Serena disconnected.</value></data>
+  <data name="SerenaLaunchFailed" xml:space="preserve"><value>Cannot start Serena.</value></data>
+  <data name="SerenaNotFound" xml:space="preserve"><value>Cannot find {0}. Install Serena or set Pool__Executable to the absolute path of the executable or its directory.</value></data>
+  <data name="SerenaPathNotAbsolute" xml:space="preserve"><value>Pool__Executable must be the absolute path of the executable or its directory.</value></data>
+  <data name="SerenaReplRequired" xml:space="preserve"><value>Serena ({0}) does not support --agent-interface repl. Install a version with REPL support.</value></data>
+  <data name="SerenaRunFailed" xml:space="preserve"><value>Cannot run Serena ({0}): {1}</value></data>
+  <data name="SerenaStartupFailed" xml:space="preserve"><value>Serena failed to start: {0} {1}</value></data>
+  <data name="SetupBusy" xml:space="preserve"><value>Another Serena Pool setup is running. Try again shortly.</value></data>
+  <data name="SetupComplete" xml:space="preserve"><value>Serena Pool {0} setup complete</value></data>
+  <data name="SetupConflicts" xml:space="preserve"><value>Setup found conflicts:
+- {0}</value></data>
+  <data name="SetupRolledBack" xml:space="preserve"><value>Setup changes were rolled back.</value></data>
+  <data name="SetupWriteFailed" xml:space="preserve"><value>Setup could not write the files: {0} {1}</value></data>
+  <data name="SharedSkillVersion" xml:space="preserve"><value>{0} ({1}) still uses {2}. Upgrade it together with {3}</value></data>
+  <data name="SkillConflict" xml:space="preserve"><value>The skill shared by {0} already exists or has been edited ({1})</value></data>
+  <data name="StdioDisconnected" xml:space="preserve"><value>The stdio client disconnected</value></data>
+  <data name="TomlTableRequired" xml:space="preserve"><value>The TOML entry {0} must be a table.</value></data>
+  <data name="ToolCode" xml:space="preserve"><value>Serena Python REPL code</value></data>
+  <data name="ToolInstanceId" xml:space="preserve"><value>Private ID returned by acquire</value></data>
+  <data name="ToolWorkdir" xml:space="preserve"><value>Absolute path of the project or worktree</value></data>
+  <data name="TrayCallbackFailed" xml:space="preserve"><value>Cannot register the tray window message handler.</value></data>
+  <data name="TrayIconRejected" xml:space="preserve"><value>The Windows notification area did not accept the tray icon.</value></data>
+  <data name="TrayStartupFailed" xml:space="preserve"><value>Cannot start the Serena Pool tray icon: {0}</value></data>
+  <data name="TrayVersionFailed" xml:space="preserve"><value>Cannot set the tray icon notification version.</value></data>
+  <data name="UnknownCommand" xml:space="preserve"><value>Unknown command {0}. Use --help to see the available commands.</value></data>
+  <data name="UnknownOutcome" xml:space="preserve"><value>The Serena connection was lost and the execution outcome is unknown: {0}</value></data>
+  <data name="UnknownTarget" xml:space="preserve"><value>Unknown setup target {0}. Run setup --help to list the targets.</value></data>
+  <data name="WebAddressLine" xml:space="preserve"><value>  Dashboard   {0}/  (when enabled)</value></data>
+  <data name="WorkdirResolutionFailed" xml:space="preserve"><value>Cannot resolve the working directory {0}</value></data>
+  <data name="WorkerExited" xml:space="preserve"><value>The Serena worker exited. Its leases are no longer valid.</value></data>
+</root>

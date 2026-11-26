@@ -7,6 +7,8 @@ body { margin: 0; min-height: 100vh; color: var(--ink); background: #f4f7f3; fon
 .bar-inner { min-height: 64px; }
 .brand { color: inherit; text-decoration: none; display: inline-flex; gap: .65rem; align-items: center; font-size: 1.13rem; font-weight: 680; }
 .mark { width: 30px; height: 30px; border: 1px solid #78ac95; border-radius: 7px; color: #b7ebc4; display: grid; place-content: center; font: bold 29px/1 monospace; }
+.bar-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .25rem 1rem; }
+.bar-actions a { color: inherit; font-size: .83rem; }
 .connection { color: #c5dece; font-size: .83rem; }
 h1, h2, p { margin: 0; }
 h1 { font-size: clamp(1.9rem, 4vw, 2.7rem); letter-spacing: -.05em; line-height: 1.25; }

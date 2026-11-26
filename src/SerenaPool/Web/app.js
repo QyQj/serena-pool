@@ -1,8 +1,13 @@
 "use strict";
 const byId = id => document.getElementById(id);
 const rows = byId("rows"), detail = byId("detail"), connection = byId("connection"), notice = byId("notice");
-const states = {starting: "启动中", active: "使用中", idle: "空闲", failed: "已失效"};
-const clock = iso => new Date(iso).toLocaleTimeString("zh-CN", {hour12: false});
+const messages = __DASHBOARD_MESSAGES__;
+const text = (key, ...values) => messages[key].replace(/\{(\d+)\}/g, (_, index) => String(values[index]));
+const locale = document.documentElement.lang;
+const clockFormat = new Intl.DateTimeFormat(locale, {timeStyle: "medium", hour12: false});
+const timestampFormat = new Intl.DateTimeFormat(locale, {dateStyle: "medium", timeStyle: "medium"});
+const clock = value => clockFormat.format(new Date(value));
+const states = {starting: text("DashboardStarting"), active: text("DashboardActive"), idle: text("DashboardIdle"), failed: text("DashboardWorkerFailed")};
 let workers = [], selected = null, syncing = false, version = "";
 
 function el(tag, text, className) {
@@ -22,13 +27,13 @@ function action(label, key, fn) {
 
 async function api(path, method = "GET") {
   const res = await fetch(path, {method, cache: "no-store"});
-  if (res.status === 409) throw new Error("实例正在使用，无法回收。");
-  if (!res.ok) throw new Error("请求失败（HTTP " + res.status + "）");
+  if (res.status === 409) throw new Error(text("DashboardConflict"));
+  if (!res.ok) throw new Error(text("DashboardHttpError", res.status));
   return res;
 }
 
 function render() {
-  const focused = document.activeElement.dataset.key;
+  const focused = document.activeElement?.dataset.key;
   const fragment = document.createDocumentFragment();
   for (const w of workers) {
     const row = el("tr");
@@ -38,10 +43,10 @@ function render() {
     name.append(el("span", w.workdir, "path"));
     row.append(name);
     for (const [label, item] of [
-      ["状态", el("span", states[w.state], "tag " + w.state)],
-      ["领用", el("span", w.leases.length)],
-      ["执行 / 排队", el("span", Number(w.running) + " / " + w.queued, "mono")],
-      ["操作", action("查看详情", "view-" + w.number, () => { selected = w.number; render(); byId("detail-title").focus(); })]
+      [text("DashboardStatus"), el("span", states[w.state], "tag " + w.state)],
+      [text("DashboardLeases"), el("span", w.leases.length)],
+      [text("DashboardQueue"), el("span", Number(w.running) + " / " + w.queued, "mono")],
+      [text("DashboardActions"), action(text("DashboardView"), "view-" + w.number, () => { selected = w.number; render(); byId("detail-title").focus(); })]
     ]) {
       const cell = el("td");
       cell.dataset.label = label;
@@ -51,35 +56,35 @@ function render() {
     fragment.append(row);
   }
   rows.replaceChildren(fragment);
-  byId("summary").textContent = workers.length + " 个实例 · " + workers.reduce((n, w) => n + w.leases.length, 0) + " 个领用";
+  byId("summary").textContent = text("DashboardSummary", workers.length, workers.reduce((n, w) => n + w.leases.length, 0));
   byId("empty").hidden = workers.length !== 0;
   const w = workers.find(item => item.number === selected);
   detail.hidden = !w;
   detail.replaceChildren();
   if (w) {
-    const header = el("div", undefined, "detail-head"), title = el("h2", "实例 #" + w.number);
+    const header = el("div", undefined, "detail-head"), title = el("h2", text("DashboardWorker", w.number));
     title.id = "detail-title";
     title.tabIndex = -1;
-    header.append(title, action("关闭详情", "close", () => {
+    header.append(title, action(text("DashboardClose"), "close", () => {
       selected = null;
       render();
       document.querySelector('[data-key="view-' + w.number + '"]')?.focus();
     }));
     const info = el("dl");
-    for (const [label, value] of [["工作目录", w.workdir], ["进程 PID", w.pid ?? "—"], ["启动时间", new Date(w.started).toLocaleString("zh-CN")],
-      ["预计回收", w.recycleAt && clock(w.recycleAt)], ["最近错误", w.lastError]]) {
+    for (const [label, value] of [[text("DashboardWorkdir"), w.workdir], [text("DashboardPid"), w.pid ?? "—"], [text("DashboardStarted"), timestampFormat.format(new Date(w.started))],
+      [text("DashboardRecycleAt"), w.recycleAt && clock(w.recycleAt)], [text("DashboardLastError"), w.lastError]]) {
       if (value) info.append(el("dt", label), el("dd", value));
     }
     detail.append(header, info);
     for (const lease of w.leases) {
       const item = el("div", undefined, "lease");
-      item.append(el("strong", "领用 #" + lease.number), el("span", "领用时间 " + clock(lease.acquired)),
-        el("span", "最近活动 " + clock(lease.lastActivity)), action("释放", "release-" + lease.number,
-          () => change("/api/leases/" + lease.number, "释放领用 #" + lease.number + "？排队调用将取消。")));
+      item.append(el("strong", text("DashboardLease", lease.number)), el("span", text("DashboardAcquired", clock(lease.acquired))),
+        el("span", text("DashboardLastActivity", clock(lease.lastActivity))), action(text("DashboardRelease"), "release-" + lease.number,
+          () => change("/api/leases/" + lease.number, text("DashboardConfirmRelease", lease.number))));
       detail.append(item);
     }
     if (!w.running && w.queued === 0 && w.leases.length === 0)
-      detail.append(action("立即回收", "recycle-" + w.number, () => change("/api/workers/" + w.number, "回收实例 #" + w.number + "？")));
+      detail.append(action(text("DashboardRecycle"), "recycle-" + w.number, () => change("/api/workers/" + w.number, text("DashboardConfirmRecycle", w.number))));
   } else selected = null;
   if (focused) document.querySelector('[data-key="' + CSS.escape(focused) + '"]')?.focus({preventScroll: true});
 }
@@ -91,11 +96,11 @@ async function refresh() {
     const data = await (await api("/api/workers")).json();
     const next = JSON.stringify(data);
     if (next !== version) { workers = data; version = next; render(); }
-    if (connection.textContent !== "本机已连接") notice.textContent = "";
-    connection.textContent = "本机已连接";
+    if (connection.textContent !== text("DashboardConnected")) notice.textContent = "";
+    connection.textContent = text("DashboardConnected");
     byId("updated").textContent = clock(Date.now());
   } catch (err) {
-    connection.textContent = "连接失败";
+    connection.textContent = text("DashboardFailed");
     notice.textContent = err.message;
   } finally { syncing = false; }
 }

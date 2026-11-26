@@ -2,6 +2,8 @@ using System.Text;
 using Microsoft.AspNetCore.Connections;
 using SerenaPool;
 
+Messages.ConfigureProcess();
+
 if (args is ["--launch-serena", var executable, var workdir])
     return SerenaProcess.Launch(executable, workdir);
 if (args is ["--launch-unix", var parent, var command, var directory])
@@ -26,11 +28,11 @@ try
 
     var background = args[0] == "--background-serve";
     if (!background && args[0] != "mcp")
-        throw new ArgumentException($"未知命令 {args[0]}。使用 --help 查看用法。");
+        throw new ArgumentException(LocalText("UnknownCommand", args[0]));
 
     var hostArgs = args[1..];
     if (hostArgs is not [] and not ["--urls", _])
-        throw new ArgumentException($"用法：serena-pool mcp [--urls {PoolSettings.DefaultAddress}]");
+        throw new ArgumentException(LocalText("McpUsage", PoolSettings.DefaultAddress));
 
     var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     {
@@ -41,7 +43,7 @@ try
         address.Scheme is not ("http" or "https") || address.AbsolutePath != "/" ||
         address.UserInfo.Length > 0 || address.Query.Length > 0 || address.Fragment.Length > 0 ||
         !background && address.Port == 0)
-        throw new ArgumentException("请为 --urls 指定包含固定端口的本机回环地址。");
+        throw new ArgumentException(LocalText("LoopbackRequired"));
 
     if (!background)
     {
@@ -52,7 +54,7 @@ try
     ProcessLauncher.Detach();
     var settings = builder.Configuration.GetSection("Pool").Get<PoolSettings>() ?? new();
     if (settings.IdleTimeout <= TimeSpan.Zero || settings.LeaseTimeout <= TimeSpan.Zero)
-        throw new InvalidDataException("IdleTimeout 和 LeaseTimeout 必须大于零。");
+        throw new InvalidDataException(LocalText("PositiveTimeoutsRequired"));
     if (settings.Executable is { Length: > 0 })
         settings.ResolveExecutable();
 
@@ -73,7 +75,7 @@ try
     try { await app.RunAsync(); }
     catch (IOException ex) when (ex.InnerException is AddressInUseException)
     {
-        throw new IOException($"地址 {address} 已被占用。请关闭占用进程，或用 mcp --urls 指定其他本机端口。", ex);
+        throw new IOException(LocalText("PoolAddressOccupied", address), ex);
     }
     return 0;
 }

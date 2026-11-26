@@ -18,13 +18,13 @@ internal sealed partial class PoolSettings
         var fileName = OperatingSystem.IsWindows() ? "serena.exe" : "serena";
         if (Executable is not { Length: > 0 })
             return FindOnPath(fileName) ?? FindInstalledExecutable(fileName) ?? throw new FileNotFoundException(
-                $"找不到 {fileName}。请安装 Serena，或设置 Pool__Executable 为可执行文件或其目录的绝对路径。");
+                LocalText("SerenaNotFound", fileName));
 
         if (!Path.IsPathFullyQualified(Executable))
-            throw new ArgumentException("Pool__Executable 必须为可执行文件或其目录的绝对路径。");
+            throw new ArgumentException(LocalText("SerenaPathNotAbsolute"));
         var path = Directory.Exists(Executable) ? Path.Combine(Executable, fileName) : Executable;
         return File.Exists(path) ? Path.GetFullPath(path) :
-            throw new FileNotFoundException($"Pool__Executable 指定的 Serena 启动程序不存在：{path}。");
+            throw new FileNotFoundException(LocalText("ConfiguredSerenaMissing", path));
     }
 
     private static string? FindInstalledExecutable(string fileName)
@@ -45,11 +45,11 @@ internal sealed partial class PoolSettings
     public static string ResolveWorkdir(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
-            throw new ArgumentException("workdir 必须是已存在目录的绝对路径。");
+            throw new ArgumentException(LocalText("InvalidWorkdir"));
         if (!OperatingSystem.IsWindows())
         {
             var ptr = RealPath(path, 0);
-            if (ptr == 0) throw new IOException($"无法解析工作目录 {path}", new Win32Exception(Marshal.GetLastPInvokeError()));
+            if (ptr == 0) throw new IOException(LocalText("WorkdirResolutionFailed", path), new Win32Exception(Marshal.GetLastPInvokeError()));
             try
             {
                 var physical = Marshal.PtrToStringUTF8(ptr)!;

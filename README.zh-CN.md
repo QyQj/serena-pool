@@ -92,7 +92,7 @@ dotnet tool exec SerenaPool@0.1.0-preview.4 -- setup codex
 
 `setup` 在写入任何文件前都会执行检查并保障一致性：
 - 自动按物理路径去重共享 skill 目录（例如 `codex`、`cursor`、`copilot`、`opencode` 与 `gemini-cli` 共用 `~/.agents/skills/serena-pool/SKILL.md`），并在 `~/.serena-pool/setup.json` 记录托管状态。
-- 保留其他无关 MCP 条目以及已为 `serena-pool` 配置的自定义 `--urls` 参数。
+- 保留其他无关 MCP 条目以及已为 `serena-pool` 配置的自定义 `--urls` 参数。Codex 配置已有 `[mcp_servers]` 时，只追加 Serena Pool 的子表。
 - 若发现同名外部 MCP 条目、用户手动修改过 skill 文件，或共用同一 skill 的其他客户端仍固定在另一版本，会在写入前报错停止（跨版本冲突时需将共用客户端一并升级）。
 - 写入前会运行找到的 Serena，确认它支持 REPL。
 - 在各宿主的 MCP 条目中将 Serena 的绝对路径写为 `Pool__Executable`，并清理已有受管条目中的旧凭证设置。
@@ -180,10 +180,13 @@ env = { Pool__Executable = 'C:\tools\serena.exe', Pool__WebDashboard = "false" }
 
 ## 环境变量
 
+Serena Pool 的 CLI、后台诊断和 MCP 消息默认跟随系统界面语言。将 `SERENA_POOL_LANGUAGE` 设为 `en` 或 `zh-CN` 可覆盖默认值。管理页跟随浏览器语言，也可在页头切换。
+
 请将这些变量写入 MCP 客户端配置。共享后台管理进程在启动时读取这些设置，修改配置或升级包后需重启后台进程。
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
+| `SERENA_POOL_LANGUAGE` | 系统界面语言，其他语言默认英语 | 用于 CLI 输出和实例池消息，可设为英语或简体中文。 |
 | `Pool__Executable` | 依次搜索 `PATH`、`UV_TOOL_BIN_DIR`、`XDG_BIN_HOME` 和 `~/.local/bin` | 指定 Serena 可执行文件或其所在目录的绝对路径。 |
 | `Pool__IdleTimeout` | `00:10:00` | 实例在全部领用释放且无待处理调用后的空闲保留时长（必须大于零）。 |
 | `Pool__WebDashboard` | `true` | 启用管理页、管理 API 和 Windows 托盘图标。 |

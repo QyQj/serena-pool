@@ -39,7 +39,7 @@ internal sealed class HarnessConfig
         {
             document = Toml.Parse(source.Length == 0 || source.EndsWith('\n') ? source : source + "\r\n");
             if (!document.TryToModel(out model, out _) || model is null)
-                throw new InvalidDataException("Codex TOML 配置无效。");
+                throw new InvalidDataException(LocalText("InvalidCodexToml"));
             if (model.TryGetValue(section, out var servers))
                 table = ModelValue(GetTable(servers, section), Server) is { } value ? GetTable(value, Server) : null;
         }
@@ -202,10 +202,16 @@ internal sealed class HarnessConfig
         foreach (var (key, value) in updates)
             target[key] = value;
         target["env"] = env;
-        if (table is null)
+        var inlineParent = document!.KeyValues.Any(item => item.Key?.DotKeys.ChildrenCount == 0 &&
+            KeyText(item.Key.Key) == section && item.Value is InlineTableSyntax);
+        if (table is null && !inlineParent)
         {
-            var append = Toml.FromModel(new TomlTable { [section] = new TomlTable { [Server] = target } });
-            var combined = source + "\r\n" + append.ReplaceLineEndings("\r\n");
+            var append = Toml.FromModel(new TomlTable { [section] = new TomlTable { [Server] = target } })
+                .ReplaceLineEndings("\r\n");
+            var parentHeader = $"[{section}]\r\n";
+            if (append.StartsWith(parentHeader, StringComparison.Ordinal))
+                append = append[parentHeader.Length..];
+            var combined = source + "\r\n" + append;
             if (Toml.Parse(combined).TryToModel<TomlTable>(out _, out _))
                 return combined;
         }
@@ -218,7 +224,7 @@ internal sealed class HarnessConfig
     {
         var serialized = Toml.Parse(Toml.FromModel(environment));
         if (serialized.KeyValues.ChildrenCount != environment.Count)
-            throw new InvalidDataException("Codex MCP env 中的环境变量必须为键值对。");
+            throw new InvalidDataException(LocalText("InvalidCodexEnv"));
         var fields = string.Join(", ", serialized.KeyValues.Select(item => item.ToString().Trim()));
         return $"{key} = {{ {fields} }}\r\n";
     }
@@ -243,7 +249,7 @@ internal sealed class HarnessConfig
     {
         null => new(),
         TomlArray values => values,
-        _ => throw new InvalidDataException("Codex env_vars 必须为数组。")
+        _ => throw new InvalidDataException(LocalText("InvalidCodexEnvVars"))
     };
 
     private static string? ForwardedName(object? value) => value is TomlTable variable ?
@@ -286,20 +292,20 @@ internal sealed class HarnessConfig
     };
 
     private static TomlTable GetTable(object? value, string key) =>
-        value as TomlTable ?? throw new InvalidDataException($"TOML 项 {key} 必须为表。");
+        value as TomlTable ?? throw new InvalidDataException(LocalText("TomlTableRequired", key));
 
     private static object? ModelValue(TomlTable? table, string key) =>
         table is not null && table.TryGetValue(key, out var value) ? value : null;
 
     internal static JsonObject ReadJson(string source) =>
         JsonNode.Parse(source, documentOptions: JsonOptions) as JsonObject ??
-        throw new InvalidDataException("JSON 配置的顶层必须为对象。");
+        throw new InvalidDataException(LocalText("JsonRootObjectRequired"));
 
     internal static JsonObject? ObjectProperty(JsonObject? root, string name)
     {
         if (root is null || !root.TryGetPropertyValue(name, out var value))
             return null;
-        return value as JsonObject ?? throw new InvalidDataException($"JSON 项 {name} 必须为对象。");
+        return value as JsonObject ?? throw new InvalidDataException(LocalText("JsonObjectRequired", name));
     }
 
     private static JsonArray ArrayNode(IEnumerable<string> values) =>
@@ -308,7 +314,7 @@ internal sealed class HarnessConfig
     private static string[] JsonArguments(JsonNode? value) => value is null ? [] :
         value.AsArray().Select(item => StringArgument(item?.GetValue<string>())).ToArray();
     private static string StringArgument(object? value) => value as string ??
-        throw new InvalidDataException("MCP 程序和参数必须为字符串。");
+        throw new InvalidDataException(LocalText("InvalidMcpArgs"));
 
     private static string SetJson(string text, string[] path, JsonNode value)
     {
@@ -325,7 +331,7 @@ internal sealed class HarnessConfig
         for (var i = 0; i < path.Length; i++)
         {
             if (reader.TokenType != JsonTokenType.StartObject)
-                throw new InvalidDataException($"JSON 配置路径无效：{path[i]}。");
+                throw new InvalidDataException(LocalText("InvalidJsonPath", path[i]));
             var position = checked((int)reader.BytesConsumed);
             var search = reader;
             search.Read();
@@ -348,7 +354,7 @@ internal sealed class HarnessConfig
             if (!found)
             {
                 if (i != path.Length - 1)
-                    throw new InvalidDataException($"JSON 配置路径不存在：{path[i]}。");
+                    throw new InvalidDataException(LocalText("MissingJsonPath", path[i]));
                 var item = newline + indent + JsonSerializer.Serialize(path[i]) + ": " + serialized +
                     (hasProperties ? "," : newline + indent[2..]);
                 return ReplaceJson(bytes, position, position, item);

@@ -26,7 +26,7 @@ internal sealed class SetupFiles
         var file = new FileInfo(path);
         if (file.LinkTarget is not null)
             return PhysicalPath(file.ResolveLinkTarget(true)?.FullName ??
-                throw new IOException($"无法解析配置链接：{path}。"));
+                throw new IOException(LocalText("ConfigLinkFailed", path)));
 
         var directory = Path.GetDirectoryName(path)!;
         var missing = new Stack<string>();
@@ -81,7 +81,7 @@ internal sealed class SetupFiles
             {
                 if (snapshot.BackupSource is { } source && unrestored.Contains(source))
                 {
-                    failures.Add($"原配置备份保留于 {snapshot.Path}");
+                    failures.Add(LocalText("BackupRetained", snapshot.Path));
                     continue;
                 }
                 try
@@ -110,8 +110,8 @@ internal sealed class SetupFiles
                     failures.Add($"{directory}：{rollback.Message}");
                 }
             }
-            var detail = failures.Count == 0 ? "已撤销本次改动。" : $"以下路径需要手动检查：{string.Join("，", failures)}";
-            throw new IOException($"安装写入失败：{error.Message} {detail}", error);
+            var detail = failures.Count == 0 ? LocalText("SetupRolledBack") : LocalText("RollbackIncomplete", string.Join(LocalText("FailureSeparator"), failures));
+            throw new IOException(LocalText("SetupWriteFailed", error.Message, detail), error);
         }
     }
 
@@ -177,7 +177,7 @@ internal sealed class SetupFiles
         public void CheckUnchanged(byte[]? expected)
         {
             if (!Equal(expected, ReadBytes(Path)))
-                throw new IOException($"配置在安装过程中被修改：{Path}。请重试。");
+                throw new IOException(LocalText("ConcurrentConfigChange", Path));
         }
     }
 }

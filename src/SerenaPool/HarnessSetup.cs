@@ -30,7 +30,7 @@ internal static class HarnessSetup
             PrintUsage(catalog);
             if (Console.IsInputRedirected || Console.IsOutputRedirected)
                 return 2;
-            Console.Write("请选择目标（用空格或逗号分隔，回车取消）：");
+            Console.Write(LocalText("ChooseTargets"));
             args = (Console.ReadLine() ?? "").Split([' ', ',', '\t'], StringSplitOptions.RemoveEmptyEntries);
             if (args.Length == 0)
                 return 0;
@@ -41,14 +41,14 @@ internal static class HarnessSetup
             if (int.TryParse(argument, out var index) && index >= 1 && index <= catalog.Length)
                 return catalog[index - 1];
             return catalog.SingleOrDefault(target => target.Id.Equals(argument, StringComparison.OrdinalIgnoreCase)) ??
-                throw new ArgumentException($"未知安装目标 {argument}。运行 setup --help 查看目标。");
+                throw new ArgumentException(LocalText("UnknownTarget", argument));
         }).Distinct().Select(target => target.ResolvePaths()).ToArray();
 
         using var mutex = new Mutex(false, $"{StdioBridge.PipeName(0)}-setup");
         try
         {
             if (!mutex.WaitOne(0))
-                throw new IOException("另一项 Serena Pool 安装正在进行。请稍后重试。");
+                throw new IOException(LocalText("SetupBusy"));
         }
         catch (AbandonedMutexException) { /* 重新读取当前配置后再安装。 */ }
 
@@ -62,7 +62,7 @@ internal static class HarnessSetup
         var files = new SetupFiles();
         var stateFile = files.Read(SetupFiles.PhysicalPath(Path.Combine(home, ".serena-pool", "setup.json")));
         var state = stateFile.Text is { } data ? JsonSerializer.Deserialize<InstallState>(data) ??
-            throw new InvalidDataException($"安装记录无效：{stateFile.Path}。") : new([], []);
+            throw new InvalidDataException(LocalText("InvalidSetupState", stateFile.Path)) : new([], []);
         using var stream = typeof(HarnessSetup).Assembly.GetManifestResourceStream("SerenaPool.Skill")!;
         using var reader = new StreamReader(stream);
         var skill = reader.ReadToEnd();
@@ -76,7 +76,7 @@ internal static class HarnessSetup
             if (configurations.TryGetValue(target.Config, out var known))
             {
                 if (known.Format != target.Format)
-                    throw new IOException($"宿主配置路径重叠且格式不兼容：{target.Config}。");
+                    throw new IOException(LocalText("ConfigPathConflict", target.Config));
                 return known.File;
             }
             var file = files.Read(target.Config);
@@ -89,7 +89,7 @@ internal static class HarnessSetup
             try { return new(ConfigFile(target).Text, target.Format); }
             catch (Exception error) when (error is JsonException or InvalidDataException or ArgumentException)
             {
-                throw new InvalidDataException($"{target.Id} 配置 {target.Config} 无法读取：{error.Message}", error);
+                throw new InvalidDataException(LocalText("ConfigReadFailed", target.Id, target.Config, error.Message), error);
             }
         }
 
@@ -99,17 +99,17 @@ internal static class HarnessSetup
             var config = ReadConfig(target);
             launches[i] = Launch.Recognize(config);
             if (config.Exists && launches[i] is null)
-                conflicts.Add($"{target.Id}（{target.Config}）已有同名外部 MCP 条目");
+                conflicts.Add(LocalText("ExternalMcpEntry", target.Id, target.Config));
         }
 
         foreach (var group in groups)
         {
-            var owners = string.Join("、", group.Select(target => target.Id));
+            var owners = string.Join(LocalText("ClientSeparator"), group.Select(target => target.Id));
             var skillFile = files.Read(group.Key);
             var prior = state.Skills.SingleOrDefault(item => PoolSettings.PathComparer.Equals(item.Path, group.Key));
             if (skillFile.Text is { } existing &&
                 (prior is null || existing != prior.Source || !SameUtf8File(skillFile, prior.Source)))
-                conflicts.Add($"{owners} 共用的 skill 已存在或已被编辑（{group.Key}）");
+                conflicts.Add(LocalText("SkillConflict", owners, group.Key));
 
             var otherTargets = catalog.Where(target =>
                 PoolSettings.PathComparer.Equals(SetupFiles.PhysicalPath(target.Skill), group.Key))
@@ -125,12 +125,12 @@ internal static class HarnessSetup
                 var registration = ReadConfig(target).ReadLaunch();
                 if (Launch.PinnedVersion(registration.Command, registration.Args) is { } installed &&
                     !installed.Equals(Version, StringComparison.OrdinalIgnoreCase))
-                    conflicts.Add($"{target.Id}（{target.Config}）仍使用 {installed}，请与 {owners} 一起升级");
+                    conflicts.Add(LocalText("SharedSkillVersion", target.Id, target.Config, installed, owners));
             }
         }
 
         if (conflicts.Count > 0)
-            throw new InvalidOperationException($"安装前检查发现冲突：\n- {string.Join("\n- ", conflicts)}");
+            throw new InvalidOperationException(LocalText("SetupConflicts", string.Join("\n- ", conflicts)));
 
         var executable = new PoolSettings { Executable = Environment.GetEnvironmentVariable("Pool__Executable") }.ResolveExecutable();
         ValidateSerena(executable);
@@ -149,7 +149,7 @@ internal static class HarnessSetup
             {
                 var sdk = RunCommand(dotnet, ["--version"], cwd).Trim();
                 if (!int.TryParse(sdk.Split('.')[0], out major) || major < 10)
-                    throw new InvalidOperationException($"需要 .NET 10 或更新的 SDK：{dotnet}。");
+                    throw new InvalidOperationException(LocalText("DotnetRequired", dotnet));
                 sdkVersions.Add((dotnet, cwd), major);
             }
 
@@ -165,7 +165,7 @@ internal static class HarnessSetup
                 var generated = new HarnessConfig(updated, target.Format);
                 var confirmed = generated.ReadLaunch();
                 if (confirmed.Command != dotnet || !confirmed.Args.SequenceEqual(desired) || !generated.HasConfiguredExecutable(executable))
-                    throw new InvalidDataException($"无法生成 {target.Id} 的 MCP 注册。");
+                    throw new InvalidDataException(LocalText("RegistrationFailed", target.Id));
                 var file = ConfigFile(target);
                 file.Set(updated);
                 if (file.Changed)
@@ -194,35 +194,34 @@ internal static class HarnessSetup
         var backups = previews.Keys.ToDictionary(file => file, files.BackUp);
         files.Commit(stateFile);
 
-        Console.WriteLine($"Serena Pool {Version} 配置完成");
+        Console.WriteLine(LocalText("SetupComplete", Version));
         foreach (var target in selected)
         {
             Console.WriteLine();
             Console.WriteLine(target.Id);
-            Console.WriteLine($"  MCP 配置    {target.Config}");
+            Console.WriteLine(LocalText("McpConfigLine", target.Config));
             Console.WriteLine($"  Skill       {target.Skill}");
             var file = ConfigFile(target);
             if (!previews.TryGetValue(file, out var preview))
             {
-                Console.WriteLine("  MCP 配置未变更");
+                Console.WriteLine(LocalText("ConfigUnchanged"));
                 continue;
             }
 
             if (backups[file] is { } backup)
-                Console.WriteLine($"  备份        {backup}");
-            Console.WriteLine("  写入内容（Serena Pool 管理项）");
-            foreach (var line in preview.Trim().Split('\n').Select(line => line.TrimEnd('\r')))
-                if (line != "[mcp_servers]")
-                    Console.WriteLine($"    {line}");
+                Console.WriteLine(LocalText("BackupLine", backup));
+            Console.WriteLine(LocalText("ManagedSettings"));
+            foreach (var line in preview.Trim().Split('\n'))
+                Console.WriteLine($"    {line.TrimEnd('\r')}");
         }
 
         Console.WriteLine();
-        Console.WriteLine("运行信息");
+        Console.WriteLine(LocalText("RuntimeDetails"));
         Console.WriteLine($"  Serena      {executable}");
         foreach (var url in urls)
         {
             var address = url.TrimEnd('/');
-            Console.WriteLine($"  Web 管理页  {address}/  （启用时）");
+            Console.WriteLine(LocalText("WebAddressLine", address));
             Console.WriteLine($"  HTTP MCP    {address}/mcp");
         }
     }
@@ -239,12 +238,12 @@ internal static class HarnessSetup
         }
         catch (Exception error) when (error is IOException or Win32Exception)
         {
-            throw new IOException($"无法运行 Serena（{executable}）：{error.Message}", error);
+            throw new IOException(LocalText("SerenaRunFailed", executable, error.Message), error);
         }
 
         if (!help.Split('\n').Any(line => line.TrimStart().StartsWith("--agent-interface ", StringComparison.Ordinal) &&
             line.Contains("repl", StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidDataException($"Serena（{executable}）未提供 --agent-interface repl。请安装支持 REPL 的版本。");
+            throw new InvalidDataException(LocalText("SerenaReplRequired", executable));
     }
 
     private static string FindDotnet()
@@ -254,17 +253,17 @@ internal static class HarnessSetup
         if (path is not null && Path.IsPathFullyQualified(path) && File.Exists(path) &&
             Path.GetFileName(path).Equals(name, StringComparison.OrdinalIgnoreCase))
             return Path.GetFullPath(path);
-        return PoolSettings.FindOnPath(name) ?? throw new FileNotFoundException($"PATH 中找不到 {name}。请安装 .NET SDK。");
+        return PoolSettings.FindOnPath(name) ?? throw new FileNotFoundException(LocalText("DotnetNotFound", name));
     }
 
     private static JsonObject PrepareClaude(string dotnet, string[] args)
     {
-        var claude = FindClient("claude") ?? throw new FileNotFoundException("PATH 中找不到 Claude Code 命令 claude。");
+        var claude = FindClient("claude") ?? throw new FileNotFoundException(LocalText("ClaudeNotFound"));
         if (OperatingSystem.IsWindows() && Path.GetExtension(claude).Equals(".cmd", StringComparison.OrdinalIgnoreCase))
         {
             var native = Path.Combine(Path.GetDirectoryName(claude)!, "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe");
             claude = File.Exists(native) ? native :
-                throw new FileNotFoundException("Claude Code 的 npm 命令没有对应的 claude.exe。请安装原生 Claude Code。");
+                throw new FileNotFoundException(LocalText("ClaudeNativeRequired"));
         }
         var stage = Directory.CreateTempSubdirectory("serena-pool-claude-");
         try
@@ -273,7 +272,7 @@ internal static class HarnessSetup
                 HarnessConfig.Server, "--", dotnet, .. args], stage.FullName, stage.FullName);
             var root = HarnessConfig.ReadJson(File.ReadAllText(Path.Combine(stage.FullName, ".claude.json")));
             var registered = HarnessConfig.ObjectProperty(HarnessConfig.ObjectProperty(root, "mcpServers"), HarnessConfig.Server);
-            return registered is null ? throw new InvalidDataException("Claude Code 未生成预期的用户级 MCP 条目。") :
+            return registered is null ? throw new InvalidDataException(LocalText("ClaudeRegistrationMissing")) :
                 (JsonObject)registered.DeepClone();
         }
         finally { stage.Delete(recursive: true); }
@@ -293,17 +292,17 @@ internal static class HarnessSetup
         }
         foreach (var arg in args)
             start.ArgumentList.Add(arg);
-        using var process = Process.Start(start) ?? throw new IOException($"无法启动 {command}。");
+        using var process = Process.Start(start) ?? throw new IOException(LocalText("CommandStartFailed", command));
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(30000))
         {
             process.Kill(entireProcessTree: true);
             process.WaitForExit();
-            throw new IOException($"{Path.GetFileName(command)} 执行超时。");
+            throw new IOException(LocalText("CommandTimedOut", Path.GetFileName(command)));
         }
         if (process.ExitCode != 0)
-            throw new IOException($"{Path.GetFileName(command)} {args[0]} 执行失败（退出码 {process.ExitCode}）。");
+            throw new IOException(LocalText("CommandFailed", Path.GetFileName(command), args[0], process.ExitCode));
         error.GetAwaiter().GetResult();
         return output.GetAwaiter().GetResult();
     }
@@ -348,7 +347,7 @@ internal static class HarnessSetup
         {
             var target = targets[i];
             var detected = FindClient(target.Executable) is not null || File.Exists(target.Config);
-            Console.WriteLine($"  {i + 1}. {target.Id}{(detected ? "（已检测到）" : "")}");
+            Console.WriteLine($"  {i + 1}. {target.Id}{(detected ? LocalText("DetectedClient") : "")}");
         }
     }
 
@@ -358,7 +357,7 @@ internal static class HarnessSetup
         {
             var skillFile = Skill;
             if (new FileInfo(skillFile).LinkTarget is not null)
-                throw new IOException($"Skill 必须是普通文件：{skillFile}。");
+                throw new IOException(LocalText("RegularSkillRequired", skillFile));
             return this with { Config = SetupFiles.PhysicalPath(Config), Skill = SetupFiles.PhysicalPath(skillFile) };
         }
     }

@@ -76,11 +76,11 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
 
     public Task<CallToolResult> CallAsync(Guid id, string code, CancellationToken token)
     {
-        if (string.IsNullOrWhiteSpace(code)) throw new McpException("code 不能为空。");
+        if (string.IsNullOrWhiteSpace(code)) throw new McpException(LocalText("EmptyCode"));
         Lease lease;
         lock (sync)
         {
-            if (!leases.TryGetValue(id, out lease!)) throw new McpException("领用已失效，请重新 acquire。");
+            if (!leases.TryGetValue(id, out lease!)) throw new McpException(LocalText("ExpiredLease"));
             lease.Pending++;
             lease.Worker.Queued++;
         }
@@ -105,16 +105,16 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
             lock (sync)
             {
                 waiting.Token.ThrowIfCancellationRequested();
-                if (worker.Failed) throw new McpException("Serena 进程已失效，请重新 acquire。");
+                if (worker.Failed) throw new McpException(LocalText("FailedWorker"));
                 worker.Queued--;
                 worker.Running = started = true;
             }
-            if (worker.Backend?.HasExited == true) throw new IOException("Serena 已断开连接。");
+            if (worker.Backend?.HasExited == true) throw new IOException(LocalText("SerenaDisconnected"));
             return await operation();
         }
         catch (OperationCanceledException) when (waiting.IsCancellationRequested && !lifetime.ApplicationStopping.IsCancellationRequested)
         {
-            if (lease?.Released.IsCancellationRequested == true) throw new McpException("领用已释放，排队的调用已取消。");
+            if (lease?.Released.IsCancellationRequested == true) throw new McpException(LocalText("ReleasedLease"));
             throw;
         }
         catch (Exception ex) when (started)
@@ -122,7 +122,7 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
             SerenaProcess? backend;
             lock (sync)
             {
-                worker.Error = lease is null ? ex.Message : $"Serena 连接中断，执行结果未知：{ex.Message}";
+                worker.Error = lease is null ? ex.Message : LocalText("UnknownOutcome", ex.Message);
                 worker.Failed = true;
                 foreach (var id in worker.Leases.Keys.ToArray()) RemoveLease(id);
                 backend = worker.Backend;
@@ -211,7 +211,7 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
                             closed.Add(w.Backend);
                             w.Backend = null;
                             w.Failed = true;
-                            w.Error = "Serena 进程已退出，此进程的领用已失效。";
+                            w.Error = LocalText("WorkerExited");
                             w.LastActivity = now;
                         }
                         if (w.Leases.Count == 0 && now - w.LastActivity >= settings.IdleTimeout)

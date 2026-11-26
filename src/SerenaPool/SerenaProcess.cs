@@ -65,11 +65,11 @@ internal sealed partial class SerenaProcess(Process launcher, Action terminate, 
                 var leader = launcher.Id;
                 cleanup = () => ProcessLauncher.KillGroup(leader);
                 if (!int.TryParse(await launcher.StandardOutput.ReadLineAsync(token), out pid))
-                    throw new IOException("未收到 Serena 启动进程 ID。");
+                    throw new IOException(LocalText("MissingWorkerPid"));
                 launcher.Exited += (_, _) => Terminate();
                 launcher.EnableRaisingEvents = true;
             }
-            if (pid <= 0) throw new IOException("无法启动 Serena。");
+            if (pid <= 0) throw new IOException(LocalText("SerenaLaunchFailed"));
             server = Process.GetProcessById(pid);
             server.Exited += (_, _) => Terminate();
             server.EnableRaisingEvents = true;
@@ -77,7 +77,7 @@ internal sealed partial class SerenaProcess(Process launcher, Action terminate, 
             client = await McpClient.CreateAsync(transport, cancellationToken: token);
             var tools = await client.ListToolsAsync(cancellationToken: token);
             if (!tools.Any(t => t.Name == "serena_repl") || !tools.Any(t => t.Name == "initial_instructions"))
-                throw new McpException("Serena 未提供所需的 REPL 与初始化工具。");
+                throw new McpException(LocalText("MissingReplTools"));
             return new(launcher, Terminate, server, client);
         }
         catch (Exception ex)
@@ -89,7 +89,7 @@ internal sealed partial class SerenaProcess(Process launcher, Action terminate, 
             server?.Dispose();
             launcher.Dispose();
             if (ex is OperationCanceledException) throw;
-            throw new McpException($"Serena 启动失败：{ex.Message} {Volatile.Read(ref lastDiagnostic)}", ex);
+            throw new McpException(LocalText("SerenaStartupFailed", ex.Message, Volatile.Read(ref lastDiagnostic)), ex);
         }
     }
 
@@ -108,7 +108,7 @@ internal sealed partial class SerenaProcess(Process launcher, Action terminate, 
         var active = ProjectLine().Match(manual);
         if (!session.Success || !active.Success ||
             !PoolSettings.PathComparer.Equals(PoolSettings.ResolveWorkdir(active.Groups[1].Value), directory))
-            throw new McpException("无法确认 Serena 会话与活动项目目录。请检查本机 Serena 版本与项目配置。");
+            throw new McpException(LocalText("ProjectSessionUnverified"));
         return (session.Groups[1].Value, manual.Remove(session.Index, session.Length).Trim());
     }
 

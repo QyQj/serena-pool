@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="AcquireToolDescription" xml:space="preserve"><value>为绝对路径对应的工作目录领用新的 Serena REPL 会话。请妥善保管 instance_id，阅读返回的 Serena 指引并使用 call。</value></data>
+  <data name="BackupLine" xml:space="preserve"><value>  备份        {0}</value></data>
+  <data name="BackupRetained" xml:space="preserve"><value>原配置备份保留于 {0}</value></data>
+  <data name="BridgeStartupHint" xml:space="preserve"><value>请检查后台启动环境或用 --urls 试用其他端口。</value></data>
+  <data name="CallToolDescription" xml:space="preserve"><value>在领用的 Serena REPL 中执行 Python 代码。用 s.lsp 检索符号，用 s.info 查看 API 帮助。变量在当前领用中持续有效。</value></data>
+  <data name="ChooseTargets" xml:space="preserve"><value>请选择目标（用空格或逗号分隔，回车取消）：</value></data>
+  <data name="ClaudeNativeRequired" xml:space="preserve"><value>Claude Code 的 npm 命令没有对应的 claude.exe。请安装原生 Claude Code。</value></data>
+  <data name="ClaudeNotFound" xml:space="preserve"><value>PATH 中找不到 Claude Code 命令 claude。</value></data>
+  <data name="ClaudeRegistrationMissing" xml:space="preserve"><value>Claude Code 未生成预期的用户级 MCP 条目。</value></data>
+  <data name="ClientSeparator" xml:space="preserve"><value>、</value></data>
+  <data name="CommandFailed" xml:space="preserve"><value>{0} {1} 执行失败（退出码 {2}）。</value></data>
+  <data name="CommandStartFailed" xml:space="preserve"><value>无法启动 {0}。</value></data>
+  <data name="CommandTimedOut" xml:space="preserve"><value>{0} 执行超时。</value></data>
+  <data name="ConcurrentConfigChange" xml:space="preserve"><value>配置在安装过程中被修改：{0}。请重试。</value></data>
+  <data name="ConfigLinkFailed" xml:space="preserve"><value>无法解析配置链接：{0}。</value></data>
+  <data name="ConfigPathConflict" xml:space="preserve"><value>宿主配置路径重叠且格式不兼容：{0}。</value></data>
+  <data name="ConfigReadFailed" xml:space="preserve"><value>{0} 配置 {1} 无法读取：{2}</value></data>
+  <data name="ConfigUnchanged" xml:space="preserve"><value>  MCP 配置未变更</value></data>
+  <data name="ConfiguredSerenaMissing" xml:space="preserve"><value>Pool__Executable 指定的 Serena 启动程序不存在：{0}。</value></data>
+  <data name="DashboardAcquired" xml:space="preserve"><value>领用时间 {0}</value></data>
+  <data name="DashboardActions" xml:space="preserve"><value>操作</value></data>
+  <data name="DashboardActive" xml:space="preserve"><value>使用中</value></data>
+  <data name="DashboardClose" xml:space="preserve"><value>关闭详情</value></data>
+  <data name="DashboardConfirmRecycle" xml:space="preserve"><value>回收实例 #{0}？</value></data>
+  <data name="DashboardConfirmRelease" xml:space="preserve"><value>释放领用 #{0}？排队调用将取消。</value></data>
+  <data name="DashboardConflict" xml:space="preserve"><value>仅可回收空闲实例。</value></data>
+  <data name="DashboardConnected" xml:space="preserve"><value>本机已连接</value></data>
+  <data name="DashboardConnecting" xml:space="preserve"><value>正在连接</value></data>
+  <data name="DashboardEmpty" xml:space="preserve"><value>暂无实例</value></data>
+  <data name="DashboardEmptyHint" xml:space="preserve"><value>Agent 调用 acquire(workdir) 后，实例会显示在这里。</value></data>
+  <data name="DashboardFailed" xml:space="preserve"><value>连接失败</value></data>
+  <data name="DashboardHttpError" xml:space="preserve"><value>请求失败（HTTP {0}）</value></data>
+  <data name="DashboardIdle" xml:space="preserve"><value>空闲</value></data>
+  <data name="DashboardLastActivity" xml:space="preserve"><value>最近活动 {0}</value></data>
+  <data name="DashboardLastError" xml:space="preserve"><value>最近错误</value></data>
+  <data name="DashboardLastSync" xml:space="preserve"><value>最近同步</value></data>
+  <data name="DashboardLease" xml:space="preserve"><value>领用 #{0}</value></data>
+  <data name="DashboardLeases" xml:space="preserve"><value>领用</value></data>
+  <data name="DashboardOpenFailed" xml:space="preserve"><value>无法打开 Serena Pool 管理页 {0}：{1}</value></data>
+  <data name="DashboardPid" xml:space="preserve"><value>进程 PID</value></data>
+  <data name="DashboardPool" xml:space="preserve"><value>实例池</value></data>
+  <data name="DashboardQueue" xml:space="preserve"><value>执行 / 排队</value></data>
+  <data name="DashboardRecycle" xml:space="preserve"><value>立即回收</value></data>
+  <data name="DashboardRecycleAt" xml:space="preserve"><value>预计回收</value></data>
+  <data name="DashboardRefresh" xml:space="preserve"><value>刷新</value></data>
+  <data name="DashboardRelease" xml:space="preserve"><value>释放</value></data>
+  <data name="DashboardStarted" xml:space="preserve"><value>启动时间</value></data>
+  <data name="DashboardStarting" xml:space="preserve"><value>启动中</value></data>
+  <data name="DashboardStatus" xml:space="preserve"><value>状态</value></data>
+  <data name="DashboardSummary" xml:space="preserve"><value>{0} 个实例 · {1} 个领用</value></data>
+  <data name="DashboardTitle" xml:space="preserve"><value>Serena Pool · 实例管理</value></data>
+  <data name="DashboardView" xml:space="preserve"><value>查看详情</value></data>
+  <data name="DashboardWorkdir" xml:space="preserve"><value>工作目录</value></data>
+  <data name="DashboardWorker" xml:space="preserve"><value>实例 #{0}</value></data>
+  <data name="DashboardWorkerFailed" xml:space="preserve"><value>已失效</value></data>
+  <data name="DetectedClient" xml:space="preserve"><value>（已检测到）</value></data>
+  <data name="DotnetNotFound" xml:space="preserve"><value>PATH 中找不到 {0}。请安装 .NET SDK。</value></data>
+  <data name="DotnetRequired" xml:space="preserve"><value>需要 .NET 10 或更新的 SDK：{0}。</value></data>
+  <data name="EmptyCode" xml:space="preserve"><value>code 不能为空。</value></data>
+  <data name="ExpiredLease" xml:space="preserve"><value>领用已失效，请重新 acquire。</value></data>
+  <data name="ExternalMcpEntry" xml:space="preserve"><value>{0}（{1}）已有同名外部 MCP 条目</value></data>
+  <data name="FailedWorker" xml:space="preserve"><value>Serena 进程已失效，请重新 acquire。</value></data>
+  <data name="FailureSeparator" xml:space="preserve"><value>，</value></data>
+  <data name="InvalidCodexEnv" xml:space="preserve"><value>Codex MCP env 中的环境变量必须为键值对。</value></data>
+  <data name="InvalidCodexEnvVars" xml:space="preserve"><value>Codex env_vars 必须为数组。</value></data>
+  <data name="InvalidCodexToml" xml:space="preserve"><value>Codex TOML 配置无效。</value></data>
+  <data name="InvalidInstanceId" xml:space="preserve"><value>instance_id 无效。</value></data>
+  <data name="InvalidJsonPath" xml:space="preserve"><value>JSON 配置路径无效：{0}。</value></data>
+  <data name="InvalidMcpArgs" xml:space="preserve"><value>MCP 程序和参数必须为字符串。</value></data>
+  <data name="InvalidSetupState" xml:space="preserve"><value>安装记录无效：{0}。</value></data>
+  <data name="InvalidWorkdir" xml:space="preserve"><value>workdir 必须是已存在目录的绝对路径。</value></data>
+  <data name="JsonObjectRequired" xml:space="preserve"><value>JSON 项 {0} 必须为对象。</value></data>
+  <data name="JsonRootObjectRequired" xml:space="preserve"><value>JSON 配置的顶层必须为对象。</value></data>
+  <data name="ListToolDescription" xml:space="preserve"><value>列出本机 Serena 实例、工作目录、公开领用编号及排队的调用。</value></data>
+  <data name="LoopbackRequired" xml:space="preserve"><value>请为 --urls 指定包含固定端口的本机回环地址。</value></data>
+  <data name="ManagedSettings" xml:space="preserve"><value>  写入内容（Serena Pool 管理项）</value></data>
+  <data name="McpConfigLine" xml:space="preserve"><value>  MCP 配置    {0}</value></data>
+  <data name="McpUsage" xml:space="preserve"><value>用法：serena-pool mcp [--urls {0}]</value></data>
+  <data name="MissingJsonPath" xml:space="preserve"><value>JSON 配置路径不存在：{0}。</value></data>
+  <data name="MissingReplTools" xml:space="preserve"><value>Serena 未提供所需的 REPL 与初始化工具。</value></data>
+  <data name="MissingWorkerPid" xml:space="preserve"><value>未收到 Serena 启动进程 ID。</value></data>
+  <data name="PoolAddressOccupied" xml:space="preserve"><value>地址 {0} 已被占用。请关闭占用进程，或用 mcp --urls 指定其他本机端口。</value></data>
+  <data name="PoolConnectFailed" xml:space="preserve"><value>无法连接 Serena Pool（{0}）。{1}</value></data>
+  <data name="PositiveTimeoutsRequired" xml:space="preserve"><value>IdleTimeout 和 LeaseTimeout 必须大于零。</value></data>
+  <data name="ProjectSessionUnverified" xml:space="preserve"><value>无法确认 Serena 会话与活动项目目录。请检查本机 Serena 版本与项目配置。</value></data>
+  <data name="RegistrationFailed" xml:space="preserve"><value>无法生成 {0} 的 MCP 注册。</value></data>
+  <data name="RegularSkillRequired" xml:space="preserve"><value>Skill 必须是普通文件：{0}。</value></data>
+  <data name="ReleasedLease" xml:space="preserve"><value>领用已释放，排队的调用已取消。</value></data>
+  <data name="ReleaseToolDescription" xml:space="preserve"><value>释放私有 instance_id。排队的调用会取消，已执行的调用可能继续完成。</value></data>
+  <data name="RollbackIncomplete" xml:space="preserve"><value>以下路径需要手动检查：{0}</value></data>
+  <data name="RuntimeDetails" xml:space="preserve"><value>运行信息</value></data>
+  <data name="SerenaDisconnected" xml:space="preserve"><value>Serena 已断开连接。</value></data>
+  <data name="SerenaLaunchFailed" xml:space="preserve"><value>无法启动 Serena。</value></data>
+  <data name="SerenaNotFound" xml:space="preserve"><value>找不到 {0}。请安装 Serena，或设置 Pool__Executable 为可执行文件或其目录的绝对路径。</value></data>
+  <data name="SerenaPathNotAbsolute" xml:space="preserve"><value>Pool__Executable 必须为可执行文件或其目录的绝对路径。</value></data>
+  <data name="SerenaReplRequired" xml:space="preserve"><value>Serena（{0}）未提供 --agent-interface repl。请安装支持 REPL 的版本。</value></data>
+  <data name="SerenaRunFailed" xml:space="preserve"><value>无法运行 Serena（{0}）：{1}</value></data>
+  <data name="SerenaStartupFailed" xml:space="preserve"><value>Serena 启动失败：{0} {1}</value></data>
+  <data name="SetupBusy" xml:space="preserve"><value>另一项 Serena Pool 安装正在进行。请稍后重试。</value></data>
+  <data name="SetupComplete" xml:space="preserve"><value>Serena Pool {0} 配置完成</value></data>
+  <data name="SetupConflicts" xml:space="preserve"><value>安装前检查发现冲突：
+- {0}</value></data>
+  <data name="SetupRolledBack" xml:space="preserve"><value>已撤销本次改动。</value></data>
+  <data name="SetupWriteFailed" xml:space="preserve"><value>安装写入失败：{0} {1}</value></data>
+  <data name="SharedSkillVersion" xml:space="preserve"><value>{0}（{1}）仍使用 {2}，请与 {3} 一起升级</value></data>
+  <data name="SkillConflict" xml:space="preserve"><value>{0} 共用的 skill 已存在或已被编辑（{1}）</value></data>
+  <data name="StdioDisconnected" xml:space="preserve"><value>stdio 客户端连接已中断</value></data>
+  <data name="TomlTableRequired" xml:space="preserve"><value>TOML 项 {0} 必须为表。</value></data>
+  <data name="ToolCode" xml:space="preserve"><value>Serena REPL 的 Python 代码</value></data>
+  <data name="ToolInstanceId" xml:space="preserve"><value>acquire 返回的私有 ID</value></data>
+  <data name="ToolWorkdir" xml:space="preserve"><value>项目或 worktree 的绝对路径</value></data>
+  <data name="TrayCallbackFailed" xml:space="preserve"><value>无法注册托盘窗口的消息处理程序。</value></data>
+  <data name="TrayIconRejected" xml:space="preserve"><value>Windows 通知区域没有接受托盘图标。</value></data>
+  <data name="TrayStartupFailed" xml:space="preserve"><value>无法启动 Serena Pool 托盘：{0}</value></data>
+  <data name="TrayVersionFailed" xml:space="preserve"><value>无法设置托盘图标的通知版本。</value></data>
+  <data name="UnknownCommand" xml:space="preserve"><value>未知命令 {0}。使用 --help 查看用法。</value></data>
+  <data name="UnknownOutcome" xml:space="preserve"><value>Serena 连接中断，执行结果未知：{0}</value></data>
+  <data name="UnknownTarget" xml:space="preserve"><value>未知安装目标 {0}。运行 setup --help 查看目标。</value></data>
+  <data name="WebAddressLine" xml:space="preserve"><value>  Web 管理页  {0}/  （启用时）</value></data>
+  <data name="WorkdirResolutionFailed" xml:space="preserve"><value>无法解析工作目录 {0}</value></data>
+  <data name="WorkerExited" xml:space="preserve"><value>Serena 进程已退出，此进程的领用已失效。</value></data>
+</root>

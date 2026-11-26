@@ -47,7 +47,7 @@ internal sealed class LocalPipeServer(IServer web, IHostApplicationLifetime life
             await server.RunAsync(stop);
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
-        catch (Exception ex) { log.LogWarning(ex, "stdio 客户端连接已中断"); }
+        catch (Exception ex) { log.LogWarning(ex, LocalText("StdioDisconnected")); }
         finally { Interlocked.Decrement(ref connections); }
     }
 }
