@@ -43,22 +43,22 @@ Serena Pool lets multiple local MCP clients and coding agents share [Serena](htt
 
 ## Installation & Quick Setup
 
-Run the preview package from [NuGet](https://www.nuget.org/packages/SerenaPool) directly with `dnx` or `dotnet tool exec` (the example below configures Codex):
+Run the stable package from [NuGet](https://www.nuget.org/packages/SerenaPool) directly with `dnx` or `dotnet tool exec` (the example below configures Codex):
 
 ```sh
-dnx SerenaPool --prerelease -- setup codex
+dnx SerenaPool -- setup codex
 ```
 
 Or with `dotnet tool exec`:
 
 ```sh
-dotnet tool exec SerenaPool --prerelease -- setup codex
+dotnet tool exec SerenaPool -- setup codex
 ```
 
 You can also install it as a global .NET tool and run `serena-pool` directly:
 
 ```sh
-dotnet tool install --global SerenaPool --prerelease
+dotnet tool install --global SerenaPool
 serena-pool setup codex
 ```
 
@@ -67,13 +67,13 @@ serena-pool setup codex
 
 ### Upgrading
 
-Run `setup` from the new package to update the pinned version in each configured client. For Codex:
+To upgrade from `0.1.0-preview.7`, run `setup` from `0.1.0` for each configured client. For Codex:
 
 ```sh
-dotnet tool exec SerenaPool@0.1.0-preview.7 -- setup codex
+dotnet tool exec SerenaPool@0.1.0 -- setup codex
 ```
 
-Include all installed clients that share the same skill directory in the same command, for example `setup codex cursor`. If you prefer using the global command, first run `dotnet tool update --global SerenaPool --version 0.1.0-preview.7`, then run `serena-pool setup codex`.
+Include all installed clients that share the same skill directory in the same command, for example `setup codex cursor`. If you prefer using the global command, first run `dotnet tool update --global SerenaPool --version 0.1.0`, then run `serena-pool setup codex`.
 
 Release active leases and close clients connected to the old shared pool. After the old background process exits, start a new client session. Updating the installed command alone does not change the pinned client configurations.
 
@@ -191,7 +191,7 @@ Set these variables in your MCP client configuration. The shared background host
 
 ## Building, Testing & Packaging from Source
 
-Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (see `global.json`). Running the smoke test also requires `git` and a working `serena` executable on `PATH`.
+Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (see `global.json`). Running the smoke test also requires `git`, `serena`, and `uv` on `PATH`. Serena uses `uv` to launch the Python language server for the test worktrees.
 
 ```sh
 # Build the solution
@@ -201,7 +201,7 @@ dotnet build SerenaPool.slnx -c Release
 dotnet pack src/SerenaPool -c Release
 
 # Verify the locally packed tool
-dotnet tool exec SerenaPool@0.1.0-preview.7 --source src/SerenaPool/bin/Release -- --help
+dotnet tool exec SerenaPool@0.1.0 --source src/SerenaPool/bin/Release -- --help
 
 # Run the end-to-end smoke test against a writable temporary directory
 dotnet run --project tests/SerenaPool.Smoke -c Release -- "<absolute-path-to-writable-temp-dir>"

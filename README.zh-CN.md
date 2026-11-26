@@ -43,22 +43,22 @@ Serena Pool 让同一台电脑上的多个 MCP 客户端和编码 Agent 共用 [
 
 ## 安装与快速配置
 
-通过 [NuGet](https://www.nuget.org/packages/SerenaPool) 直接使用 `dnx` 或 `dotnet tool exec` 运行预览版（以下示例为 Codex 注册 MCP 与配套 skill）：
+通过 [NuGet](https://www.nuget.org/packages/SerenaPool) 直接使用 `dnx` 或 `dotnet tool exec` 运行正式版（以下示例为 Codex 注册 MCP 与配套 skill）：
 
 ```sh
-dnx SerenaPool --prerelease -- setup codex
+dnx SerenaPool -- setup codex
 ```
 
 也可使用 `dotnet tool exec`：
 
 ```sh
-dotnet tool exec SerenaPool --prerelease -- setup codex
+dotnet tool exec SerenaPool -- setup codex
 ```
 
 或者安装为全局工具后直接使用 `serena-pool` 命令：
 
 ```sh
-dotnet tool install --global SerenaPool --prerelease
+dotnet tool install --global SerenaPool
 serena-pool setup codex
 ```
 
@@ -67,13 +67,13 @@ serena-pool setup codex
 
 ### 升级
 
-用新版本执行 `setup`，即可更新客户端配置里固定的包版本。以 Codex 为例：
+从 `0.1.0-preview.7` 升级时，用 `0.1.0` 为已配置的客户端重新执行 `setup`。以 Codex 为例：
 
 ```sh
-dotnet tool exec SerenaPool@0.1.0-preview.7 -- setup codex
+dotnet tool exec SerenaPool@0.1.0 -- setup codex
 ```
 
-已安装的客户端如果共用同一份 skill，请在同一条命令里一起更新，例如 `setup codex cursor`。习惯使用全局命令时，先运行 `dotnet tool update --global SerenaPool --version 0.1.0-preview.7`，再执行 `serena-pool setup codex`。
+已安装的客户端如果共用同一份 skill，请在同一条命令里一起更新，例如 `setup codex cursor`。习惯使用全局命令时，先运行 `dotnet tool update --global SerenaPool --version 0.1.0`，再执行 `serena-pool setup codex`。
 
 释放正在使用的领用并关闭连接旧共享池的客户端。等旧后台进程退出后，再开启新会话。仅升级全局工具不会修改客户端里固定的版本。
 
@@ -197,7 +197,7 @@ Serena Pool 的 CLI、后台诊断和 MCP 消息默认跟随系统界面语言�
 
 ## 从源码构建、测试与打包
 
-源码构建需要 [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)（见 `global.json`）。运行冒烟测试还需 `git` 以及 `PATH` 上可用的 `serena` 可执行文件。
+源码构建需要 [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)（见 `global.json`）。运行冒烟测试还需在 `PATH` 上提供 `git`、`serena` 和 `uv`。Serena 通过 `uv` 为测试工作目录启动 Python 语言服务器。
 
 ```sh
 # 构建解决方案
@@ -207,7 +207,7 @@ dotnet build SerenaPool.slnx -c Release
 dotnet pack src/SerenaPool -c Release
 
 # 验证本地打包产物
-dotnet tool exec SerenaPool@0.1.0-preview.7 --source src/SerenaPool/bin/Release -- --help
+dotnet tool exec SerenaPool@0.1.0 --source src/SerenaPool/bin/Release -- --help
 
 # 使用真实 Serena 与临时目录运行端到端冒烟测试
 dotnet run --project tests/SerenaPool.Smoke -c Release -- "<可写临时目录的绝对路径>"
