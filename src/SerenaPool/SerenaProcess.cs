@@ -36,7 +36,6 @@ internal sealed partial class SerenaProcess(Process launcher, Action terminate, 
         var start = OperatingSystem.IsWindows() ? ProcessLauncher.Self("--launch-serena", executable, directory)
             : ProcessLauncher.Self("--launch-unix", Environment.ProcessId.ToString(), executable, directory);
         start.RedirectStandardInput = start.RedirectStandardOutput = start.RedirectStandardError = true;
-        start.Environment.Remove("SerenaPool__Token");
         var launcher = Process.Start(start)!;
         Action? cleanup = null;
         void Terminate() => Interlocked.Exchange(ref cleanup, null)?.Invoke();

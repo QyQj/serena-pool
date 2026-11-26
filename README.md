@@ -11,7 +11,7 @@ Serena Pool lets multiple local MCP clients and coding agents share [Serena](htt
 - **Serialized per-worker execution**: Calls targeting the same directory are queued and executed sequentially through a per-worker gate, preventing concurrent REPL or LSP state collisions.
 - **Shared `stdio` and Streamable HTTP pool**. The background manager serves both transports from one pool. Each `stdio` connection uses its own bridge to the manager over a local named pipe.
 - **One-command setup for 7 clients**: `serena-pool setup` registers the `serena-pool` MCP server and installs the companion `serena-pool` skill with pre-write conflict checks and atomic rollback.
-- **Token-free local Web dashboard**: Monitor worker status, PIDs, queues, errors, and leases at `http://127.0.0.1:32980/`, release stale leases, and recycle idle workers.
+- **Local Web dashboard**: Monitor worker status, PIDs, queues, errors, and leases at `http://127.0.0.1:32980/`, release stale leases, and recycle idle workers. On Windows, open the dashboard from the notification area.
 - **Process-tree cleanup**: Contains spawned Serena and language server processes in a Windows Job Object (`KILL_ON_JOB_CLOSE`) on Windows or a dedicated POSIX process group with a parent-watching launcher on Linux and macOS.
 
 ## How It Works
@@ -38,7 +38,7 @@ Serena Pool lets multiple local MCP clients and coding agents share [Serena](htt
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) or newer (includes the ASP.NET Core 10 runtime).
 - [Serena](https://github.com/oraios/serena) with REPL interface support (`--agent-interface repl`, exposing `initial_instructions` and `serena_repl`).
-- Make sure `serena` (`serena.exe` on Windows) is available on `PATH`, or set `Pool__Executable` to its absolute path or containing directory.
+- Install `serena` (`serena.exe` on Windows). `setup` checks `PATH` and user installation directories, or accepts `Pool__Executable` as an explicit executable path or containing directory.
 
 ## Installation & Quick Setup
 
@@ -70,10 +70,10 @@ Pass one or more client IDs after `setup` (e.g., `serena-pool setup codex cursor
 
 | Client ID | MCP Registration Target | Skill Path | Notes |
 | --- | --- | --- | --- |
-| `codex` | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`) | `~/.agents/skills/serena-pool/SKILL.md` | Writes `[mcp_servers.serena-pool]` and forwards `Pool__Executable` via `env_vars`. |
+| `codex` | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`) | `~/.agents/skills/serena-pool/SKILL.md` | Writes `[mcp_servers.serena-pool]`. |
 | `claude-code` | `$CLAUDE_CONFIG_DIR/.claude.json` (default `~/.claude.json`) | `$CLAUDE_CONFIG_DIR/skills/serena-pool/SKILL.md` (default `~/.claude/skills/serena-pool/SKILL.md`) | Runs `claude mcp add --transport stdio --scope user`; requires native `claude` on `PATH`. |
 | `cursor` | `~/.cursor/mcp.json` | `~/.agents/skills/serena-pool/SKILL.md` | Writes `mcpServers.serena-pool` (`type: "stdio"`). |
-| `copilot` | `$COPILOT_HOME/mcp-config.json` (default `~/.copilot/mcp-config.json`) | `~/.agents/skills/serena-pool/SKILL.md` | Shared by Copilot CLI and VS Code native Copilot; forwards env vars via `${VAR:-...}` references. |
+| `copilot` | `$COPILOT_HOME/mcp-config.json` (default `~/.copilot/mcp-config.json`) | `~/.agents/skills/serena-pool/SKILL.md` | Shared by Copilot CLI and VS Code native Copilot. |
 | `opencode` | `$OPENCODE_CONFIG`, or `$XDG_CONFIG_HOME/opencode/opencode.json[c]` (default `~/.config/opencode/opencode.json`) | `~/.agents/skills/serena-pool/SKILL.md` | Writes `mcp.serena-pool` with `type: "local"` and a `command` array. |
 | `antigravity` | `~/.gemini/config/mcp_config.json` | `~/.gemini/config/skills/serena-pool/SKILL.md` | Writes `mcpServers.serena-pool`. |
 | `gemini-cli` | `$GEMINI_CLI_HOME/.gemini/settings.json` (default `~/.gemini/settings.json`) | `~/.agents/skills/serena-pool/SKILL.md` | Writes `mcpServers.serena-pool`. |
@@ -81,10 +81,12 @@ Pass one or more client IDs after `setup` (e.g., `serena-pool setup codex cursor
 `setup` checks all selected targets before modifying any files:
 - Deduplicates shared skill paths (for example, `codex`, `cursor`, `copilot`, `opencode`, and `gemini-cli` share `~/.agents/skills/serena-pool/SKILL.md`) and tracks managed state in `~/.serena-pool/setup.json`.
 - Preserves existing unrelated MCP entries and any custom `--urls` flags already configured for `serena-pool`.
-- Aborts before writing if it finds a conflicting external `serena-pool` entry, a literal token hardcoded inside client config, a locally edited skill file, or another registered client sharing the same skill path on a different `SerenaPool` version (in which case, upgrade those clients together).
+- Aborts before writing if it finds a conflicting external `serena-pool` entry, a locally edited skill file, or another registered client sharing the same skill path on a different `SerenaPool` version (in which case, upgrade those clients together).
+- Runs the selected Serena executable to check REPL support before writing client files.
+- Writes the absolute Serena path as `Pool__Executable` in each MCP entry and removes legacy Serena Pool credential settings from existing managed entries.
 - Rolls back atomically if any file write fails mid-operation.
 
-After setup finishes, it prints each registered config path, skill path, Web URL, HTTP MCP URL, and the default token file path. Start a new session in your client to load the MCP server and skill.
+After setup finishes, it prints each registered config path, skill path, dashboard URL (when enabled), HTTP MCP URL, and Serena executable path. Start a new session in your client to load the MCP server and skill.
 
 ## Connecting & Managing
 
@@ -111,11 +113,7 @@ serena-pool --help
   }
   ```
 
-- **Streamable HTTP**: Connect to `http://127.0.0.1:32980/mcp` with the header `Authorization: Bearer <token>`.
-  - The host generates the default token if its credential file is missing. The file is in one of these locations.
-    - Windows: `%LOCALAPPDATA%\SerenaPool\access-token`
-    - Linux: `~/.local/share/SerenaPool/access-token` (or `$XDG_DATA_HOME/SerenaPool/access-token`)
-    - macOS: `~/Library/Application Support/SerenaPool/access-token`
+- **Streamable HTTP**: Local clients can connect to `http://127.0.0.1:32980/mcp` directly. Requests must come from loopback and use a loopback Host. Browser requests must have a matching Origin.
 
 - **Custom ports**: Pass the same `--urls http://127.0.0.1:<port>` flag to `serena-pool mcp` for every stdio client that should share a pool, and use that port for the Web dashboard and `/mcp` endpoint. `--urls` must be a loopback `http` or `https` URL with a fixed non-zero port and no path, userinfo, query string, or fragment.
 
@@ -155,17 +153,21 @@ Open [http://127.0.0.1:32980/](http://127.0.0.1:32980/) in your browser (replace
 - **No token required**: Viewing worker/lease status, releasing leases (`DELETE /api/leases/{number}`), and recycling idle or failed workers (`DELETE /api/workers/{number}`) require no token and prompt for confirmation before acting.
 - **Live updates**: Polls `/api/workers` every 2.5 seconds while the page is visible. Closing the browser tab does not stop the pool host.
 
+The dashboard is available on Windows, macOS, and Linux. On Windows, select the Serena Pool notification-area icon to open it. Each shared pool has one notification-area icon. The dashboard uses the project icon in the browser and stays enabled by default.
+
+To disable the page, its management API, and the tray icon, add `Pool__WebDashboard = "false"` to your MCP server's environment configuration. Both MCP transports remain available. To open the enabled page automatically when the shared pool starts, set `Pool__WebDashboardOpenOnLaunch = "true"`.
+
 ## Environment Variables
 
-Set environment variables before launching your MCP client so the shared background host reads them at startup:
+Set these variables in your MCP client configuration. The shared background host reads them at startup. Restart the background host after changing its configuration or upgrading the package.
 
 | Environment Variable | Default | Description |
 | --- | --- | --- |
-| `Pool__Executable` | Searches `PATH` for `serena.exe` (Windows) or `serena` (Linux/macOS) | Absolute path to the Serena executable or its containing directory. |
+| `Pool__Executable` | Searches `PATH`, `UV_TOOL_BIN_DIR`, `XDG_BIN_HOME`, and `~/.local/bin` in order | Absolute path to the Serena executable or its containing directory. |
 | `Pool__IdleTimeout` | `00:10:00` | How long a worker stays alive after all leases are released and no calls are running or queued (must be `> 0`). |
+| `Pool__WebDashboard` | `true` | Enables the dashboard, management API, and Windows tray icon. |
+| `Pool__WebDashboardOpenOnLaunch` | `false` | Opens the dashboard in the browser on shared pool startup when enabled. |
 | `Pool__LeaseTimeout` | `01:00:00` | Inactivity timeout for an open lease; timer pauses while calls are queued or executing (must be `> 0`). |
-
-If your MCP client filters environment variables passed to child processes, allow the variables you rely on in the client's settings.
 
 ## Building, Testing & Packaging from Source
 
@@ -179,7 +181,7 @@ dotnet build SerenaPool.slnx -c Release
 dotnet pack src/SerenaPool -c Release
 
 # Verify the locally packed tool
-dotnet tool exec SerenaPool@0.1.0-preview.2 --source src/SerenaPool/bin/Release -- --help
+dotnet tool exec SerenaPool@0.1.0-preview.3 --source src/SerenaPool/bin/Release -- --help
 
 # Run the end-to-end smoke test against a writable temporary directory
 dotnet run --project tests/SerenaPool.Smoke -c Release -- "<absolute-path-to-writable-temp-dir>"

@@ -53,7 +53,7 @@ try
     var settings = builder.Configuration.GetSection("Pool").Get<PoolSettings>() ?? new();
     if (settings.IdleTimeout <= TimeSpan.Zero || settings.LeaseTimeout <= TimeSpan.Zero)
         throw new InvalidDataException("IdleTimeout 和 LeaseTimeout 必须大于零。");
-    if (settings.Executable is { Length: > 0 } and not PoolSettings.DefaultEnvironmentValue)
+    if (settings.Executable is { Length: > 0 })
         settings.ResolveExecutable();
 
     builder.Logging.ClearProviders();
@@ -65,17 +65,10 @@ try
     builder.Services.AddHostedService<LocalPipeServer>();
 
     await using var app = builder.Build();
-    app.Use(LocalAccess.Load(builder.Configuration).Invoke);
+    app.Use(LocalAccess.Invoke);
     app.MapMcp("/mcp");
-    app.MapGet("/api/workers", (InstancePool pool) => pool.Snapshot()).AllowAnonymous();
-    app.MapDelete("/api/leases/{number:long}", (long number, InstancePool pool) =>
-        pool.ReleaseByNumber(number) ? Results.NoContent() : Results.NotFound()).AllowAnonymous();
-    app.MapDelete("/api/workers/{number:long}", async (long number, InstancePool pool) =>
-        await pool.RecycleAsync(number) ? Results.NoContent() : Results.Conflict("仅可回收空闲实例。")).AllowAnonymous();
-
-    foreach (var (route, asset, mime) in new[] { ("/", "index.html", "text/html; charset=utf-8"),
-        ("/app.css", "app.css", "text/css"), ("/app.js", "app.js", "text/javascript") })
-        app.MapGet(route, () => Results.Stream(typeof(Program).Assembly.GetManifestResourceStream($"SerenaPool.Web.{asset}")!, mime));
+    if (settings.WebDashboard)
+        WebDashboard.Configure(app, address, settings.WebDashboardOpenOnLaunch);
 
     try { await app.RunAsync(); }
     catch (IOException ex) when (ex.InnerException is AddressInUseException)

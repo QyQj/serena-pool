@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text;
@@ -99,8 +100,6 @@ internal static class HarnessSetup
             launches[i] = Launch.Recognize(config);
             if (config.Exists && launches[i] is null)
                 conflicts.Add($"{target.Id}（{target.Config}）已有同名外部 MCP 条目");
-            else if (config.HasLiteralToken())
-                conflicts.Add($"{target.Id}（{target.Config}）含明文 Serena Pool 令牌，请先将其放入宿主启动环境");
         }
 
         foreach (var group in groups)
@@ -133,6 +132,8 @@ internal static class HarnessSetup
         if (conflicts.Count > 0)
             throw new InvalidOperationException($"安装前检查发现冲突：\n- {string.Join("\n- ", conflicts)}");
 
+        var executable = new PoolSettings { Executable = Environment.GetEnvironmentVariable("Pool__Executable") }.ResolveExecutable();
+        ValidateSerena(executable);
         var defaultDotnet = FindDotnet();
         var sdkVersions = new Dictionary<(string, string), int>();
         var urls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -156,12 +157,13 @@ internal static class HarnessSetup
             var mcpArgs = old?.McpArgs ?? [];
             string[] desired = ["tool", "exec", Package + Version, .. options, "--", "mcp", .. mcpArgs];
             if (old?.Command != dotnet || !config.ReadLaunch().Args.SequenceEqual(desired) ||
-                !config.ForwardsEnvironment(target.Format))
+                !config.HasConfiguredExecutable(executable))
             {
-                var claude = target.Id == "claude-code" ? PrepareClaude(dotnet, desired) : null;
-                var updated = config.SetLaunch(target.Format, dotnet, desired, claude);
-                var confirmed = new HarnessConfig(updated, target.Format).ReadLaunch();
-                if (confirmed.Command != dotnet || !confirmed.Args.SequenceEqual(desired))
+                var claude = old is null && target.Id == "claude-code" ? PrepareClaude(dotnet, desired) : null;
+                var updated = config.SetLaunch(target.Format, dotnet, desired, executable, claude);
+                var generated = new HarnessConfig(updated, target.Format);
+                var confirmed = generated.ReadLaunch();
+                if (confirmed.Command != dotnet || !confirmed.Args.SequenceEqual(desired) || !generated.HasConfiguredExecutable(executable))
                     throw new InvalidDataException($"无法生成 {target.Id} 的 MCP 注册。");
                 ConfigFile(target).Set(updated);
             }
@@ -184,13 +186,29 @@ internal static class HarnessSetup
         foreach (var target in selected)
             Console.WriteLine($"{target.Id} · MCP {target.Config}\n  Skill {target.Skill}");
         foreach (var url in urls)
-            Console.WriteLine($"Web {url.TrimEnd('/')}/ · HTTP MCP {url.TrimEnd('/')}/mcp");
-        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SerenaPool__Token")))
-            Console.WriteLine($"HTTP MCP 凭证文件 {LocalAccess.TokenPath}（首次启动后生成）");
+            Console.WriteLine($"Web（启用时） {url.TrimEnd('/')}/ · HTTP MCP {url.TrimEnd('/')}/mcp");
+        Console.WriteLine($"Serena {executable}");
     }
 
     private static bool SameUtf8File(SetupFiles.Snapshot file, string content) =>
         file.Original.AsSpan().SequenceEqual(Encoding.UTF8.GetBytes(content));
+
+    private static void ValidateSerena(string executable)
+    {
+        string help;
+        try
+        {
+            help = RunCommand(executable, ["start-mcp-server", "--help"], Environment.CurrentDirectory);
+        }
+        catch (Exception error) when (error is IOException or Win32Exception)
+        {
+            throw new IOException($"无法运行 Serena（{executable}）：{error.Message}", error);
+        }
+
+        if (!help.Split('\n').Any(line => line.TrimStart().StartsWith("--agent-interface ", StringComparison.Ordinal) &&
+            line.Contains("repl", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidDataException($"Serena（{executable}）未提供 --agent-interface repl。请安装支持 REPL 的版本。");
+    }
 
     private static string FindDotnet()
     {

@@ -18,7 +18,8 @@ internal sealed class HarnessConfig
 
     private static readonly JsonSerializerOptions PrettyJson = new() { WriteIndented = true };
 
-    private static readonly string[] InheritedEnvironment = ["Pool__Executable", "SerenaPool__Token"];
+    private const string ExecutableVariable = "Pool__Executable";
+    private string EnvironmentKey => section == "mcp" ? "environment" : "env";
 
     private string source;
     private readonly bool toml;
@@ -64,24 +65,15 @@ internal sealed class HarnessConfig
         return (entry?["command"]?.GetValue<string>() ?? "", JsonArguments(entry?["args"]));
     }
 
-    public bool HasLiteralToken()
-    {
-        var env = toml ? ModelValue(table, "env") as TomlTable : null;
-        var json = toml ? null : ObjectProperty(entry, section == "mcp" ? "environment" : "env");
-        foreach (var key in new[] { "SerenaPool__Token", "SerenaPool:Token" })
-        {
-            var value = toml ? ModelValue(env, key) as string : json?[key]?.GetValue<string>();
-            if (!string.IsNullOrEmpty(value) && !(value.StartsWith("${", StringComparison.Ordinal) && value.EndsWith('}') ||
-                section == "mcp" && value.StartsWith("{env:", StringComparison.Ordinal) && value.EndsWith('}')))
-                return true;
-        }
-        return false;
-    }
-
-    public string SetLaunch(string format, string command, string[] args, JsonObject? claudeEntry)
+    public string SetLaunch(string format, string command, string[] args, string executable, JsonObject? claudeEntry)
     {
         if (toml)
-            return SetCodex(command, args);
+            return SetCodex(command, args, executable);
+
+        var env = (JsonObject?)ObjectProperty(entry ?? claudeEntry, EnvironmentKey)?.DeepClone() ?? new();
+        foreach (var key in env.Select(item => item.Key).Where(IsManagedVariable).ToArray())
+            env.Remove(key);
+        env[ExecutableVariable] = executable;
 
         if (entry is null)
         {
@@ -98,55 +90,57 @@ internal sealed class HarnessConfig
                 if (format is "cursor" or "copilot")
                     value["type"] = "stdio";
                 if (format == "copilot")
-                {
                     value["tools"] = ArrayNode(["*"]);
-                    value["env"] = new JsonObject(InheritedEnvironment.Select(name =>
-                        KeyValuePair.Create<string, JsonNode?>(name, EnvironmentReference(name))));
-                }
             }
 
+            value[EnvironmentKey] = env;
             var root = ReadJson(source);
             return root.ContainsKey(section) ? SetJson(source, [section, Server], value) :
                 SetJson(source, [section], new JsonObject { [Server] = value });
         }
 
-        if (section == "mcp")
-            return SetJson(source, [section, Server, "command"], ArrayNode([command, .. args]));
-
         var previous = ReadLaunch();
-        if (previous.Command != command)
-            source = SetJson(source, [section, Server, "command"], JsonValue.Create(command)!);
-        if (!previous.Args.SequenceEqual(args))
-            source = SetJson(source, [section, Server, "args"], ArrayNode(args));
-        if (format == "copilot")
+        if (section == "mcp")
         {
-            var env = ObjectProperty(entry, "env");
-            if (env is null)
-                return SetJson(source, [section, Server, "env"], new JsonObject(InheritedEnvironment.Select(name =>
-                    KeyValuePair.Create<string, JsonNode?>(name, EnvironmentReference(name)))));
-            foreach (var name in InheritedEnvironment)
-                if (!env.ContainsKey(name))
-                    source = SetJson(source, [section, Server, "env", name], EnvironmentReference(name));
+            if (previous.Command != command || !previous.Args.SequenceEqual(args))
+                source = SetJson(source, [section, Server, "command"], ArrayNode([command, .. args]));
         }
-        return source;
+        else
+        {
+            if (previous.Command != command)
+                source = SetJson(source, [section, Server, "command"], JsonValue.Create(command)!);
+            if (!previous.Args.SequenceEqual(args))
+                source = SetJson(source, [section, Server, "args"], ArrayNode(args));
+        }
+        return SetJson(source, [section, Server, EnvironmentKey], env);
     }
 
-    private string SetCodex(string command, string[] args)
+    private string SetCodex(string command, string[] args, string executable)
     {
-        var forwarded = ModelValue(table, "env_vars") switch
-        {
-            null => new TomlArray(),
-            TomlArray values => values,
-            _ => throw new InvalidDataException("Codex env_vars 必须为数组。")
-        };
-        foreach (var name in InheritedEnvironment)
-            if (!Forwards(forwarded, name))
-                forwarded.Add(name);
+        var forwarded = new TomlArray();
+        foreach (var value in ForwardedVariables())
+            if (!IsManagedVariable(ForwardedName(value)))
+                forwarded.Add(value);
+
+        var env = new TomlTable(inline: true);
+        foreach (var (name, value) in CodexEnvironment())
+            if (!IsManagedVariable(name))
+                env[name] = value;
+        env[ExecutableVariable] = executable;
+
+        var envSyntax = document!.Tables.OfType<TableSyntax>().FirstOrDefault(candidate =>
+            KeyText(candidate.Name?.Key) == section && candidate.Name?.DotKeys.ChildrenCount == 2 &&
+            KeyText(candidate.Name.DotKeys.GetChild(0)?.Key) == Server &&
+            KeyText(candidate.Name.DotKeys.GetChild(1)?.Key) == "env");
+
         var updates = new Dictionary<string, object>
         {
-            ["command"] = command, ["args"] = ToTomlArray(args),
-            ["env_vars"] = forwarded
+            ["command"] = command, ["args"] = ToTomlArray(args)
         };
+        if (envSyntax is null)
+            updates["env"] = env;
+        if (forwarded.Count > 0)
+            updates["env_vars"] = forwarded;
 
         var syntax = document!.Tables.OfType<TableSyntax>().FirstOrDefault(candidate =>
             KeyText(candidate.Name?.Key) == section && candidate.Name?.DotKeys.ChildrenCount == 1 &&
@@ -155,6 +149,17 @@ internal sealed class HarnessConfig
         if (syntax is not null && updates.Keys.All(key => !table!.ContainsKey(key) ||
             syntax.Items.Any(item => item.Key?.DotKeys.ChildrenCount == 0 && KeyText(item.Key.Key) == key)))
         {
+            if (forwarded.Count == 0)
+                RemoveTomlProperties(syntax, name => name == "env_vars");
+            if (envSyntax is not null)
+            {
+                RemoveTomlProperties(envSyntax, IsManagedVariable);
+                var parsed = Toml.Parse(Toml.FromModel(new TomlTable { [ExecutableVariable] = executable }));
+                var setting = parsed.KeyValues.GetChild(0)!;
+                parsed.KeyValues.RemoveChildAt(0);
+                envSyntax.Items.Add(setting);
+            }
+
             foreach (var (key, value) in updates)
             {
                 var parsed = Toml.Parse(Toml.FromModel(new TomlTable { [key] = value }));
@@ -186,8 +191,11 @@ internal sealed class HarnessConfig
 
         var servers = model!.TryGetValue(section, out var existingServers) ? GetTable(existingServers, section) : new();
         var target = table ?? new TomlTable();
+        if (forwarded.Count == 0)
+            target.Remove("env_vars");
         foreach (var (key, value) in updates)
             target[key] = value;
+        target["env"] = env;
         if (table is null)
         {
             var append = Toml.FromModel(new TomlTable { [section] = new TomlTable { [Server] = target } });
@@ -200,24 +208,44 @@ internal sealed class HarnessConfig
         return Toml.FromModel(model).ReplaceLineEndings(source.Contains("\r\n") ? "\r\n" : "\n");
     }
 
-    public bool ForwardsEnvironment(string format) => format switch
+    public bool HasConfiguredExecutable(string executable)
     {
-        "codex" => ModelValue(table, "env_vars") is TomlArray values &&
-            InheritedEnvironment.All(name => Forwards(values, name)),
-        "copilot" => ObjectProperty(entry, "env") is { } env && InheritedEnvironment.All(env.ContainsKey),
-        _ => true
+        if (toml)
+        {
+            var env = CodexEnvironment();
+            return ModelValue(env, ExecutableVariable) as string == executable &&
+                env.Keys.Count(IsManagedVariable) == 1 &&
+                !ForwardedVariables().Any(value => IsManagedVariable(ForwardedName(value)));
+        }
+        var json = ObjectProperty(entry, EnvironmentKey);
+        return json?[ExecutableVariable] is JsonValue value && value.TryGetValue<string>(out var path) &&
+            path == executable && json.Count(item => IsManagedVariable(item.Key)) == 1;
+    }
+
+    private TomlTable CodexEnvironment() => ModelValue(table, "env") is { } value ? GetTable(value, "env") : new();
+
+    private TomlArray ForwardedVariables() => ModelValue(table, "env_vars") switch
+    {
+        null => new(),
+        TomlArray values => values,
+        _ => throw new InvalidDataException("Codex env_vars 必须为数组。")
     };
 
-    private static JsonValue EnvironmentReference(string name) =>
-        JsonValue.Create("${" + name + ":-" + PoolSettings.DefaultEnvironmentValue + "}")!;
+    private static string? ForwardedName(object? value) => value is TomlTable variable ?
+        ModelValue(variable, "name") as string : value as string;
 
-    private static bool Forwards(TomlArray values, string name) => values.Any(value => value switch
+    private static bool IsManagedVariable(string? name) =>
+        string.Equals(name, ExecutableVariable, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(name, "Pool:Executable", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(name, "SerenaPool__Token", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(name, "SerenaPool:Token", StringComparison.OrdinalIgnoreCase);
+
+    private static void RemoveTomlProperties(TableSyntax table, Func<string?, bool> matches)
     {
-        string variable => variable == name,
-        TomlTable variable => ModelValue(variable, "name") as string == name &&
-            (ModelValue(variable, "source") as string is null or "local"),
-        _ => false
-    });
+        for (var i = table.Items.ChildrenCount - 1; i >= 0; i--)
+            if (matches(KeyText(table.Items.GetChild(i)?.Key?.Key)))
+                table.Items.RemoveChildAt(i);
+    }
 
     private static void CopyTokenTrivia(SyntaxToken? previous, SyntaxToken? next)
     {

@@ -12,7 +12,7 @@
     <ToolCommandName>serena-pool</ToolCommandName>
     <PackageId>SerenaPool</PackageId>
     <VersionPrefix>0.1.0</VersionPrefix>
-    <VersionSuffix>preview.2</VersionSuffix>
+    <VersionSuffix>preview.3</VersionSuffix>
     <Version Condition="'$(PackageVersion)' != ''">$(PackageVersion)</Version>
     <PackageType>DotnetTool;McpServer</PackageType>
     <Authors>Ejy Chien</Authors>
@@ -27,11 +27,13 @@
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <DebugType>embedded</DebugType>
-    <PackageReleaseNotes>The local dashboard opens without a token. It supports viewing workers, releasing leases, and recycling idle workers.</PackageReleaseNotes>
+    <PackageReleaseNotes>The local dashboard can be disabled independently of MCP. On Windows, it is available from the notification area.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Web/*" />
+    <EmbeddedResource Include="../../assets/icon.png" LogicalName="SerenaPool.Icon.Png" />
+    <EmbeddedResource Include="../../assets/tray.ico" LogicalName="SerenaPool.Web.favicon.ico" />
     <EmbeddedResource Include="../../skills/serena-pool/SKILL.md" LogicalName="SerenaPool.Skill" />
     <None Include="../../skills/serena-pool/SKILL.md" Pack="true" PackagePath="skills/serena-pool/" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />

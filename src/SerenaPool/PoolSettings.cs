@@ -9,21 +9,32 @@ internal sealed partial class PoolSettings
     public TimeSpan LeaseTimeout { get; init; } = TimeSpan.FromMinutes(60);
     public static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
     public const string DefaultAddress = "http://127.0.0.1:32980";
-    public const string DefaultEnvironmentValue = "__SERENA_POOL_USE_DEFAULT__";
     public string? Executable { get; init; }
+    public bool WebDashboard { get; init; } = true;
+    public bool WebDashboardOpenOnLaunch { get; init; }
 
     public string ResolveExecutable()
     {
         var fileName = OperatingSystem.IsWindows() ? "serena.exe" : "serena";
-        if (Executable is not { Length: > 0 } or DefaultEnvironmentValue)
-            return FindOnPath(fileName) ?? throw new FileNotFoundException(
-                $"PATH 中找不到 {fileName}。请设置 Pool__Executable 为可执行文件或其目录的绝对路径。");
+        if (Executable is not { Length: > 0 })
+            return FindOnPath(fileName) ?? FindInstalledExecutable(fileName) ?? throw new FileNotFoundException(
+                $"找不到 {fileName}。请安装 Serena，或设置 Pool__Executable 为可执行文件或其目录的绝对路径。");
 
         if (!Path.IsPathFullyQualified(Executable))
             throw new ArgumentException("Pool__Executable 必须为可执行文件或其目录的绝对路径。");
         var path = Directory.Exists(Executable) ? Path.Combine(Executable, fileName) : Executable;
         return File.Exists(path) ? Path.GetFullPath(path) :
             throw new FileNotFoundException($"Pool__Executable 指定的 Serena 启动程序不存在：{path}。");
+    }
+
+    private static string? FindInstalledExecutable(string fileName)
+    {
+        var home = Environment.GetEnvironmentVariable(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME")
+            ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return new[] { Environment.GetEnvironmentVariable("UV_TOOL_BIN_DIR"), Environment.GetEnvironmentVariable("XDG_BIN_HOME"),
+                Path.Combine(home, ".local", "bin") }
+            .OfType<string>().Where(Path.IsPathFullyQualified)
+            .Select(directory => Path.GetFullPath(Path.Combine(directory, fileName))).FirstOrDefault(File.Exists);
     }
 
     public static string? FindOnPath(string fileName) =>

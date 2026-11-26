@@ -11,7 +11,7 @@ Serena Pool 让同一台电脑上的多个 MCP 客户端和编码 Agent 共用 [
 - **同目录串行调度**：发往同一项目目录的调用通过实例内互斥门控排队顺序执行，防止并发操作 REPL 或 LSP 状态产生冲突。
 - **多客户端共享（`stdio` 与 Streamable HTTP）**　后台管理进程用同一个实例池处理两种连接。每条 `stdio` 连接各自通过一个桥接进程，经本机命名管道接入后台。
 - **一条命令接入 7 种客户端**：`serena-pool setup` 可同时写入 MCP 注册项并安装配套 `serena-pool` skill，支持写入前冲突检查与失败自动回滚。
-- **免令牌本机 Web 管理页**：在 `http://127.0.0.1:32980/` 实时查看实例状态、PID、执行/排队数、最近错误和领用记录，支持手动释放滞留领用与回收空闲实例。
+- **本机 Web 管理页**：在 `http://127.0.0.1:32980/` 实时查看实例状态、PID、执行/排队数、最近错误和领用记录，支持手动释放滞留领用与回收空闲实例。Windows 上可从系统托盘打开管理页。
 - **子进程树可靠回收**：Windows 使用 Job Object（`KILL_ON_JOB_CLOSE`），Linux 和 macOS 使用独立 POSIX 进程组配合父进程守望启动器，即使管理进程异常退出也不会残留语言服务器子进程。
 
 ## 工作原理
@@ -38,7 +38,7 @@ Serena Pool 让同一台电脑上的多个 MCP 客户端和编码 Agent 共用 [
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) 或更新版本（已包含 ASP.NET Core 10 运行时）。
 - 支持 REPL 接口的 [Serena](https://github.com/oraios/serena)（需支持 `--agent-interface repl`，提供 `initial_instructions` 与 `serena_repl`）。
-- 确保 `serena`（Windows 为 `serena.exe`）位于 `PATH` 中，或设置 `Pool__Executable` 指向可执行文件或其所在目录的绝对路径。
+- 安装 `serena`（Windows 上为 `serena.exe`）。`setup` 会搜索 `PATH` 和用户安装目录，也可通过 `Pool__Executable` 显式指定可执行文件或所在目录。
 
 ## 安装与快速配置
 
@@ -70,10 +70,10 @@ serena-pool setup codex
 
 | 客户端标识 | MCP 配置写入位置 | Skill 安装路径 | 说明 |
 | --- | --- | --- | --- |
-| `codex` | `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`） | `~/.agents/skills/serena-pool/SKILL.md` | 写入 `[mcp_servers.serena-pool]`，并通过 `env_vars` 透传 `Pool__Executable`。 |
+| `codex` | `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`） | `~/.agents/skills/serena-pool/SKILL.md` | 写入 `[mcp_servers.serena-pool]`。 |
 | `claude-code` | `$CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`） | `$CLAUDE_CONFIG_DIR/skills/serena-pool/SKILL.md`（默认 `~/.claude/skills/serena-pool/SKILL.md`） | 通过 `claude mcp add --transport stdio --scope user` 注册；需要 PATH 上有原生 `claude` 命令。 |
 | `cursor` | `~/.cursor/mcp.json` | `~/.agents/skills/serena-pool/SKILL.md` | 写入 `mcpServers.serena-pool`（`type: "stdio"`）。 |
-| `copilot` | `$COPILOT_HOME/mcp-config.json`（默认 `~/.copilot/mcp-config.json`） | `~/.agents/skills/serena-pool/SKILL.md` | Copilot CLI 与 VS Code 原生 Copilot 共用配置；通过 `${VAR:-...}` 引用传递环境变量。 |
+| `copilot` | `$COPILOT_HOME/mcp-config.json`（默认 `~/.copilot/mcp-config.json`） | `~/.agents/skills/serena-pool/SKILL.md` | Copilot CLI 与 VS Code 原生 Copilot 共用配置。 |
 | `opencode` | `$OPENCODE_CONFIG`，或 `$XDG_CONFIG_HOME/opencode/opencode.json[c]`（默认 `~/.config/opencode/opencode.json`） | `~/.agents/skills/serena-pool/SKILL.md` | 写入 `mcp.serena-pool`（`type: "local"` 与 `command` 数组）。 |
 | `antigravity` | `~/.gemini/config/mcp_config.json` | `~/.gemini/config/skills/serena-pool/SKILL.md` | 写入 `mcpServers.serena-pool`。 |
 | `gemini-cli` | `$GEMINI_CLI_HOME/.gemini/settings.json`（默认 `~/.gemini/settings.json`） | `~/.agents/skills/serena-pool/SKILL.md` | 写入 `mcpServers.serena-pool`。 |
@@ -81,10 +81,12 @@ serena-pool setup codex
 `setup` 在写入任何文件前都会执行检查并保障一致性：
 - 自动按物理路径去重共享 skill 目录（例如 `codex`、`cursor`、`copilot`、`opencode` 与 `gemini-cli` 共用 `~/.agents/skills/serena-pool/SKILL.md`），并在 `~/.serena-pool/setup.json` 记录托管状态。
 - 保留其他无关 MCP 条目以及已为 `serena-pool` 配置的自定义 `--urls` 参数。
-- 若发现同名外部 MCP 条目、配置文件中硬编码了明文令牌、用户手动修改过 skill 文件，或共用同一 skill 的其他客户端仍固定在另一版本，会在写入前报错停止（跨版本冲突时需将共用客户端一并升级）。
+- 若发现同名外部 MCP 条目、用户手动修改过 skill 文件，或共用同一 skill 的其他客户端仍固定在另一版本，会在写入前报错停止（跨版本冲突时需将共用客户端一并升级）。
+- 写入前会运行找到的 Serena，确认它支持 REPL。
+- 在各宿主的 MCP 条目中将 Serena 的绝对路径写为 `Pool__Executable`，并清理已有受管条目中的旧凭证设置。
 - 写入过程中若发生异常，会自动回滚本次所有改动。
 
-配置完成后，终端会输出 MCP 注册路径、skill 路径、Web 管理页地址、HTTP MCP 地址及默认凭证文件路径。之后在客户端开启新会话即可加载。
+配置完成后，终端会输出 MCP 注册路径、skill 路径、Web 管理页地址（启用时可用）、HTTP MCP 地址及 Serena 可执行文件路径。之后在客户端开启新会话即可加载。
 
 ## 连接与管理
 
@@ -111,11 +113,7 @@ serena-pool --help
   }
   ```
 
-- **Streamable HTTP**：连接 `http://127.0.0.1:32980/mcp`，请求头带上 `Authorization: Bearer <令牌>`。
-  - 默认凭证文件不存在时，后台进程会生成令牌并写入文件。文件位置如下。
-    - Windows：`%LOCALAPPDATA%\SerenaPool\access-token`
-    - Linux：`~/.local/share/SerenaPool/access-token`（或 `$XDG_DATA_HOME/SerenaPool/access-token`）
-    - macOS：`~/Library/Application Support/SerenaPool/access-token`
+- **Streamable HTTP**：本机客户端可直接连接 `http://127.0.0.1:32980/mcp`。请求须来自回环地址且使用回环 Host，浏览器请求的 Origin 须匹配。
 
 - **自定义端口**：如需更换端口，请为需要共享实例池的所有 stdio 客户端 `mcp` 命令传入相同的 `--urls http://127.0.0.1:<端口>`，并在 Web 管理页和 `/mcp` 地址中使用同一端口。`--urls` 必须是带固定非零端口的本机回环 `http` 或 `https` 地址，且不能包含路径、用户信息、查询参数或片段。
 
@@ -155,17 +153,27 @@ symbols
 - **免令牌操作**：查看实例和领用状态、释放领用（`DELETE /api/leases/{number}`）以及回收空闲/已失效实例（`DELETE /api/workers/{number}`）均无需输入令牌，破坏性操作前会弹出确认对话框。
 - **自动刷新**：页面可见时每 2.5 秒轮询一次 `/api/workers`；关闭浏览器页面不会停止后台实例池。
 
+Windows、macOS 和 Linux 都提供管理页，浏览器标签使用 Serena Pool 图标。Windows 上每个共享池还会显示一个同款托盘图标，点击即可用默认浏览器打开管理页。管理页默认启用，浏览器按需打开。
+
+如需关闭管理页、管理 API 和托盘，在 MCP 条目的环境配置中将 `Pool__WebDashboard` 设为 `"false"`。HTTP MCP 和 stdio 照常使用。若希望共享池启动时自动打开已启用的管理页，将 `Pool__WebDashboardOpenOnLaunch` 设为 `"true"`。
+
+在 Codex 中，把开关加到 `[mcp_servers.serena-pool]` 的现有 `env` 表中，并保留 `setup` 写入的 Serena 路径。例如：
+
+```toml
+env = { Pool__Executable = 'C:\tools\serena.exe', Pool__WebDashboard = "false" }
+```
+
 ## 环境变量
 
-请在启动 MCP 客户端前设置环境变量，共享后台管理进程会在首次启动时读取：
+请将这些变量写入 MCP 客户端配置。共享后台管理进程在启动时读取这些设置，修改配置或升级包后需重启后台进程。
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `Pool__Executable` | 在 PATH 查找 `serena.exe`（Windows）或 `serena`（Linux/macOS） | 指定 Serena 可执行文件或其所在目录的绝对路径。 |
+| `Pool__Executable` | 依次搜索 `PATH`、`UV_TOOL_BIN_DIR`、`XDG_BIN_HOME` 和 `~/.local/bin` | 指定 Serena 可执行文件或其所在目录的绝对路径。 |
 | `Pool__IdleTimeout` | `00:10:00` | 实例在全部领用释放且无待处理调用后的空闲保留时长（必须大于零）。 |
+| `Pool__WebDashboard` | `true` | 启用管理页、管理 API 和 Windows 托盘图标。 |
+| `Pool__WebDashboardOpenOnLaunch` | `false` | 共享池启动时，用浏览器打开已启用的管理页。 |
 | `Pool__LeaseTimeout` | `01:00:00` | 无活动领用的超时回收时长，排队与执行期间暂停计时（必须大于零）。 |
-
-如果客户端会过滤或脱敏传给子进程的环境变量，请在客户端配置中放行所需变量。
 
 ## 从源码构建、测试与打包
 
@@ -179,7 +187,7 @@ dotnet build SerenaPool.slnx -c Release
 dotnet pack src/SerenaPool -c Release
 
 # 验证本地打包产物
-dotnet tool exec SerenaPool@0.1.0-preview.2 --source src/SerenaPool/bin/Release -- --help
+dotnet tool exec SerenaPool@0.1.0-preview.3 --source src/SerenaPool/bin/Release -- --help
 
 # 使用真实 Serena 与临时目录运行端到端冒烟测试
 dotnet run --project tests/SerenaPool.Smoke -c Release -- "<可写临时目录的绝对路径>"

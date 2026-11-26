@@ -1,8 +1,6 @@
 using System.Diagnostics;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Sockets;
-using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
@@ -14,16 +12,16 @@ var primary = Path.Combine(sandbox, "主工作区");
 var secondary = Path.Combine(sandbox, "worktree");
 var app = Path.GetFullPath("src/SerenaPool");
 var binary = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "SerenaPool.exe" : "SerenaPool");
-var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 var url = new Uri($"http://127.0.0.1:{ReservePort()}");
 var start = new ProcessStartInfo(binary)
 {
     UseShellExecute = false, CreateNoWindow = true,
     WorkingDirectory = app, ArgumentList = { "--background-serve", "--urls", url.GetLeftPart(UriPartial.Authority) }
 };
-start.Environment["SerenaPool__Token"] = secret;
 start.Environment["SERENA_HOME"] = Path.Combine(sandbox, "serena-home");
 start.Environment["Pool__IdleTimeout"] = "00:00:04";
+start.Environment["Pool__WebDashboard"] = "true";
+start.Environment["Pool__WebDashboardOpenOnLaunch"] = "false";
 using var host = new Process { StartInfo = start };
 bool hostStarted = false;
 using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(4));
@@ -62,16 +60,19 @@ try
     }
     Check(JsonNode.Parse(await dashboard.GetStringAsync("/api/workers", ct)) is JsonArray { Count: 0 },
         "dashboard status is available without a token");
-    using var deniedMcp = await dashboard.GetAsync("/mcp", ct);
-    Check(deniedMcp.StatusCode == HttpStatusCode.Unauthorized, "HTTP MCP requires token");
-    using var foreign = new HttpRequestMessage(HttpMethod.Get, "/api/workers");
+    using var foreign = new HttpRequestMessage(HttpMethod.Post, "/mcp");
     foreign.Headers.Add("Origin", "http://example.org");
     using var blocked = await http.SendAsync(foreign, ct);
     Check(blocked.StatusCode == HttpStatusCode.Forbidden, "foreign origin rejected");
     foreach (var path in new[] { "/", "/app.js", "/app.css" })
         Check((await http.GetStringAsync(path, ct)).Length > 0, $"embedded asset {path}");
 
-    http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secret);
+    using var favicon = await http.GetAsync("/favicon.ico", ct);
+    favicon.EnsureSuccessStatusCode();
+    var icon = await favicon.Content.ReadAsByteArrayAsync(ct);
+    Check(favicon.Content.Headers.ContentType?.MediaType == "image/x-icon" &&
+        icon.AsSpan().StartsWith(new byte[] { 0, 0, 1, 0 }), "dashboard favicon");
+
     var transport = new HttpClientTransport(new() { Endpoint = new Uri(url, "/mcp"), TransportMode = HttpTransportMode.StreamableHttp }, http);
     await using var client = await McpClient.CreateAsync(transport, cancellationToken: ct);
     var tools = await client.ListToolsAsync(cancellationToken: ct);
@@ -176,7 +177,7 @@ try
     }
     finally { foreach (var p in tracked) p.Dispose(); }
     Console.WriteLine($"Passed: forced manager exit cleaned up Serena and {tracked.Length} observed runtime processes.");
-    await CheckColdStdio(binary, sandbox, primary, secret, ct);
+    await CheckColdStdio(binary, sandbox, primary, ct);
 }
 finally
 {
@@ -203,7 +204,7 @@ static void Check(bool condition, string message)
     if (!condition) throw new InvalidOperationException(message);
 }
 
-static async Task CheckColdStdio(string binary, string sandbox, string project, string token, CancellationToken ct)
+static async Task CheckColdStdio(string binary, string sandbox, string project, CancellationToken ct)
 {
     var port = ReservePort();
     var url = $"http://127.0.0.1:{port}";
@@ -212,13 +213,26 @@ static async Task CheckColdStdio(string binary, string sandbox, string project, 
         Command = binary, WorkingDirectory = sandbox, Arguments = ["mcp", "--urls", url],
         EnvironmentVariables = new Dictionary<string, string?>
         {
-            ["SERENA_HOME"] = Path.Combine(sandbox, "serena-home"), ["SerenaPool__Token"] = token,
-            ["Pool__IdleTimeout"] = "00:00:01"
+            ["SERENA_HOME"] = Path.Combine(sandbox, "serena-home"),
+            ["Pool__IdleTimeout"] = "00:00:01",
+            ["Pool__WebDashboard"] = "false",
+            ["Pool__WebDashboardOpenOnLaunch"] = "true"
         }
     }), cancellationToken: ct);
     var clients = await Task.WhenAll(Connect(), Connect());
     await using (var second = clients[1])
     {
+        using var http = new HttpClient { BaseAddress = new Uri(url) };
+        foreach (var path in new[] { "/", "/app.js", "/app.css", "/favicon.ico", "/api/workers" })
+        {
+            using var response = await http.GetAsync(path, ct);
+            Check(response.StatusCode == HttpStatusCode.NotFound, $"dashboard disabled: {path}");
+        }
+        await using var httpClient = await McpClient.CreateAsync(new HttpClientTransport(new()
+        {
+            Endpoint = new Uri(http.BaseAddress, "/mcp"), TransportMode = HttpTransportMode.StreamableHttp
+        }, http), cancellationToken: ct);
+        Check((await httpClient.ListToolsAsync(cancellationToken: ct)).Count == 4, "HTTP MCP works with dashboard disabled");
         string id;
         await using (var first = clients[0])
         {
@@ -239,7 +253,7 @@ static async Task CheckColdStdio(string binary, string sandbox, string project, 
         catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused) { break; }
         await Task.Delay(200, wait.Token);
     }
-    Console.WriteLine("Passed: simultaneous cold stdio startup, shared leases, EOF and automatic host shutdown.");
+    Console.WriteLine("Passed: dashboard disabled with HTTP MCP and stdio available, shared leases and automatic host shutdown.");
 }
 
 static int ReservePort()
