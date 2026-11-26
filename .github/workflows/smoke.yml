@@ -28,7 +28,7 @@ jobs:
       - name: Install Serena
         run: |
           python -m venv "$RUNNER_TEMP/serena"
-          "$RUNNER_TEMP/serena/bin/python" -m pip install serena-agent==2.1.0
+          "$RUNNER_TEMP/serena/bin/python" -m pip install uv serena-agent==2.1.0
           echo "$RUNNER_TEMP/serena/bin" >> "$GITHUB_PATH"
           echo "Pool__Executable=$RUNNER_TEMP/serena/bin/serena" >> "$GITHUB_ENV"
       - name: Run the full smoke suite
