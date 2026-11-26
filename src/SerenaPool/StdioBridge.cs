@@ -1,29 +1,23 @@
 using System.Diagnostics;
-using System.IO.Pipes;
-using System.Security.Principal;
 using System.Text;
 
 namespace SerenaPool;
 
 internal static class StdioBridge
 {
-    public static string PipeName(int port)
+    public static async Task RunAsync(Uri address, ILogger log)
     {
-        var user = OperatingSystem.IsWindows() ? WindowsIdentity.GetCurrent().User!.Value : ProcessLauncher.geteuid().ToString();
-        return $"serena-pool-{user}-{port}";
-    }
-
-    public static async Task RunAsync(Uri address)
-    {
-        using var pipe = new NamedPipeClientStream(".", PipeName(address.Port), PipeDirection.InOut,
-            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+        using var pipe = new LocalPipeAddress(address.Port).ConnectClient();
         try { await pipe.ConnectAsync(200); }
         catch (TimeoutException)
         {
-            var start = ProcessLauncher.Self("--background-serve", "--urls", address.GetLeftPart(UriPartial.Authority));
+            log.LogInformation("Core pipe unavailable, attempting to start the core");
+            var start = ProcessLauncher.Self("--background-core", "--urls", address.GetLeftPart(UriPartial.Authority));
+            start.WorkingDirectory = AppContext.BaseDirectory;
             start.RedirectStandardInput = start.RedirectStandardOutput = start.RedirectStandardError = true;
             start.StandardErrorEncoding = Encoding.UTF8;
             using var process = Process.Start(start)!;
+            log.LogInformation("Launched core candidate {Pid}", process.Id);
             process.StandardInput.Close();
             string? diagnostic = null;
             process.ErrorDataReceived += (_, e) =>
@@ -31,7 +25,6 @@ internal static class StdioBridge
                 if (e.Data != null) Volatile.Write(ref diagnostic, e.Data);
             };
             process.BeginErrorReadLine();
-            // The fixed loopback port elects one host if multiple clients cold-start together.
             try { await pipe.ConnectAsync(10000); }
             catch (TimeoutException ex)
             {
@@ -40,11 +33,16 @@ internal static class StdioBridge
             }
         }
 
+        log.LogInformation("Connected to the core pipe");
         using var stop = new CancellationTokenSource();
         var input = Console.OpenStandardInput().CopyToAsync(pipe, stop.Token);
         var output = pipe.CopyToAsync(Console.OpenStandardOutput(), stop.Token);
         var completed = await Task.WhenAny(input, output);
-        try { await completed; }
+        try
+        {
+            await completed;
+            log.LogInformation("Bridge connection closed by {Side}", completed == input ? "stdio client" : "core");
+        }
         finally { stop.Cancel(); }
     }
 }

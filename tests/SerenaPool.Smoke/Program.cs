@@ -16,7 +16,7 @@ var url = new Uri($"http://127.0.0.1:{ReservePort()}");
 var start = new ProcessStartInfo(binary)
 {
     UseShellExecute = false, CreateNoWindow = true,
-    WorkingDirectory = app, ArgumentList = { "--background-serve", "--urls", url.GetLeftPart(UriPartial.Authority) }
+    WorkingDirectory = app, ArgumentList = { "--core", "--urls", url.GetLeftPart(UriPartial.Authority) }
 };
 start.Environment["SERENA_POOL_LANGUAGE"] = "zh-CN";
 start.Environment["SERENA_HOME"] = Path.Combine(sandbox, "serena-home");
@@ -25,6 +25,7 @@ start.Environment["Pool__WebDashboard"] = "true";
 start.Environment["Pool__WebDashboardOpenOnLaunch"] = "false";
 using var host = new Process { StartInfo = start };
 bool hostStarted = false;
+Process? web = null;
 using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(4));
 var ct = deadline.Token;
 try
@@ -40,68 +41,59 @@ try
     await File.WriteAllTextAsync(Path.Combine(secondary, "sample.py"), "class Marker:\r\n    branch = 'secondary'\r\n", ct);
 
     hostStarted = host.Start();
-    using var http = new HttpClient { BaseAddress = url };
     using var dashboard = new HttpClient { BaseAddress = url };
-    using (var ready = CancellationTokenSource.CreateLinkedTokenSource(ct))
+    Process StartDashboard()
     {
-        ready.CancelAfter(TimeSpan.FromSeconds(15));
-        while (true)
+        var webStart = new ProcessStartInfo(binary)
         {
-            Check(!host.HasExited, "background host startup");
-            try
-            {
-                using var response = await http.GetAsync("/", ready.Token);
-                response.EnsureSuccessStatusCode();
-                break;
-            }
-            catch (HttpRequestException ex) when (ex.HttpRequestError == HttpRequestError.ConnectionError)
-            {
-                await Task.Delay(50, ready.Token);
-            }
-        }
+            UseShellExecute = false, CreateNoWindow = true,
+            ArgumentList = { "dashboard", "--urls", url.GetLeftPart(UriPartial.Authority) }
+        };
+        webStart.Environment["Pool__WebDashboard"] = "true";
+        webStart.Environment["Pool__WebDashboardOpenOnLaunch"] = "false";
+        return Process.Start(webStart)!;
     }
-    Check(JsonNode.Parse(await dashboard.GetStringAsync("/api/workers", ct)) is JsonArray { Count: 0 },
-        "dashboard status is available without a token");
-    Check(JsonNode.Parse(await dashboard.GetStringAsync("/api/calls", ct))?["calls"] is JsonArray { Count: 0 },
-        "call history starts empty");
-    using var foreign = new HttpRequestMessage(HttpMethod.Post, "/mcp");
+    web = StartDashboard();
+    await WaitForDashboard(dashboard, ct);
+    var initial = await Task.WhenAll(dashboard.GetStringAsync("/api/workers", ct), dashboard.GetStringAsync("/api/calls", ct));
+    Check(JsonNode.Parse(initial[0]) is JsonArray { Count: 0 }, "dashboard status is available without a token");
+    Check(JsonNode.Parse(initial[1])?["calls"] is JsonArray { Count: 0 }, "call history starts empty");
+    using var foreign = new HttpRequestMessage(HttpMethod.Get, "/api/workers");
     foreign.Headers.Add("Origin", "http://example.org");
-    using var blocked = await http.SendAsync(foreign, ct);
+    using var blocked = await dashboard.SendAsync(foreign, ct);
     Check(blocked.StatusCode == HttpStatusCode.Forbidden, "foreign origin rejected");
     using var foreignHistory = new HttpRequestMessage(HttpMethod.Get, "/api/calls");
     foreignHistory.Headers.Add("Origin", "http://example.org");
     using var blockedHistory = await dashboard.SendAsync(foreignHistory, ct);
     Check(blockedHistory.StatusCode == HttpStatusCode.Forbidden, "foreign origin cannot read call history");
     foreach (var path in new[] { "/", "/app.js", "/app.css" })
-        Check((await http.GetStringAsync(path, ct)).Length > 0, $"embedded asset {path}");
+        Check((await dashboard.GetStringAsync(path, ct)).Length > 0, $"embedded asset {path}");
 
     await CheckDashboardLocale(dashboard, "en-US", null, "en", "Worker pool", "Idle", ct);
     await CheckDashboardLocale(dashboard, "fr-FR, zh-HK;q=0.7", null, "zh-CN", "实例池", "空闲", ct);
     await CheckDashboardLocale(dashboard, "zh-CN", "en", "en", "Worker pool", "Idle", ct);
 
-    using var favicon = await http.GetAsync("/favicon.ico", ct);
+    using var favicon = await dashboard.GetAsync("/favicon.ico", ct);
     favicon.EnsureSuccessStatusCode();
     var icon = await favicon.Content.ReadAsByteArrayAsync(ct);
     Check(favicon.Content.Headers.ContentType?.MediaType == "image/x-icon" &&
         icon.AsSpan().StartsWith(new byte[] { 0, 0, 1, 0 }), "dashboard favicon");
 
-    var transport = new HttpClientTransport(new() { Endpoint = new Uri(url, "/mcp"), TransportMode = HttpTransportMode.StreamableHttp }, http);
-    await using var client = await McpClient.CreateAsync(transport, cancellationToken: ct);
+    using var removed = await dashboard.PostAsync("/mcp", null, ct);
+    Check(removed.StatusCode == HttpStatusCode.NotFound, "HTTP MCP endpoint removed");
+    Task<McpClient> Connect() => McpClient.CreateAsync(new StdioClientTransport(new()
+    {
+        Command = binary, Arguments = ["mcp", "--urls", url.GetLeftPart(UriPartial.Authority)],
+        WorkingDirectory = sandbox
+    }), cancellationToken: ct);
+    await using var client = await Connect();
+    await using var pipeClient = await Connect();
     var tools = await client.ListToolsAsync(cancellationToken: ct);
     Check(tools.Select(t => t.Name).Order().SequenceEqual(new[] { "acquire", "call", "list", "release" }), "MCP tools");
     Check(tools.Single(t => t.Name == "acquire").ProtocolTool.Description?.Contains("领用") == true,
         "MCP descriptions follow the pool language");
-    var stdio = new StdioClientTransport(new()
-    {
-        Command = binary, Arguments = ["mcp", "--urls", url.GetLeftPart(UriPartial.Authority)],
-        WorkingDirectory = sandbox
-    });
-    await using var pipeClient = await McpClient.CreateAsync(stdio, cancellationToken: ct);
-    var pipeTools = await pipeClient.ListToolsAsync(cancellationToken: ct);
-    Check(pipeTools.Select(t => t.Name).Order().SequenceEqual(tools.Select(t => t.Name).Order()), "stdio tools");
     string[] titles = ["SerenaPool Acquire", "SerenaPool Call", "SerenaPool List", "SerenaPool Release"];
-    Check(tools.Select(t => t.ProtocolTool.Title).Order().SequenceEqual(titles) &&
-        pipeTools.Select(t => t.ProtocolTool.Title).Order().SequenceEqual(titles), "HTTP and stdio tool titles");
+    Check(tools.Select(t => t.ProtocolTool.Title).Order().SequenceEqual(titles), "stdio tool titles");
 
     async Task<CallToolResult> Tool(string name, params (string, object?)[] arguments) =>
         await client.CallToolAsync(name, arguments.ToDictionary(pair => pair.Item1, pair => pair.Item2), cancellationToken: ct);
@@ -134,7 +126,7 @@ try
     Check(main["leases"]!.AsArray().Count == 2 && !Text(await Tool("list")).Contains(ids[0]), "shared process, private handles");
     var fromStdio = await pipeClient.CallToolAsync("call", new Dictionary<string, object?>
         { ["instance_id"] = ids[0], ["code"] = "marker = 731\nmarker" }, cancellationToken: ct);
-    Check(fromStdio.IsError != true && Text(fromStdio).Contains("731"), "stdio executes Python with the lease acquired via HTTP");
+    Check(fromStdio.IsError != true && Text(fromStdio).Contains("731"), "a second stdio client can use the same lease");
     Check(Text(await Call(ids[1], "'independent' if 'marker' not in globals() else 'contaminated'")).Contains("independent"), "independent namespace");
     // Serena's default registry evicts the oldest of 100 sessions, including live leases.
     for (var i = 0; i < 100; i++)
@@ -144,6 +136,19 @@ try
         Check(releasedShort.IsError != true && bool.Parse(Text(releasedShort)), "release short lease");
     }
     Check(Text(await Call(ids[0], "marker")) == "731", "long lease retains its namespace across 100 short leases");
+    var duringRestart = Call(ids[0], "import time\ntime.sleep(2)\nmarker");
+    await WaitUntil(async () => (await Snapshot()).Any(w => (bool)w!["running"]!));
+    web.Kill();
+    await web.WaitForExitAsync(ct);
+    web.Dispose();
+    web = null;
+    Check(Text(await duringRestart) == "731" && Text(await Call(ids[0], "marker")) == "731",
+        "dashboard exit leaves in-flight work and its lease intact");
+    web = StartDashboard();
+    await WaitForDashboard(dashboard, ct);
+    Check((await Snapshot()).Any(w => (int)w!["pid"]! == (int)main["pid"]!), "restarted dashboard sees the original worker");
+    Console.WriteLine("Passed: dashboard restarts independently and preserves worker and lease state.");
+
     var observedCall = await Call(ids[0], """
         ignored = "s.fs.read_file('dashboard-private-source')"
         inspect_api = getattr(s, "info")
@@ -228,10 +233,19 @@ try
     }
     finally { foreach (var p in tracked) p.Dispose(); }
     Console.WriteLine($"Passed: forced manager exit cleaned up Serena and {tracked.Length} observed runtime processes.");
+    using var offline = await dashboard.GetAsync("/api/workers", ct);
+    Check(offline.StatusCode == HttpStatusCode.ServiceUnavailable && !web.HasExited, "standalone dashboard reports an unavailable core");
+    web.Kill();
+    await web.WaitForExitAsync(ct);
     await CheckColdStdio(binary, sandbox, primary, ct);
 }
 finally
 {
+    if (web is not null)
+    {
+        if (!web.HasExited) { web.Kill(); await web.WaitForExitAsync(); }
+        web.Dispose();
+    }
     if (hostStarted && !host.HasExited) { host.Kill(); await host.WaitForExitAsync(); }
     // Windows can keep Serena log handles open briefly after the manager's job is closed.
     for (var attempt = 0; ; attempt++)
@@ -335,56 +349,36 @@ static async Task CheckColdStdio(string binary, string sandbox, string project, 
 {
     var port = ReservePort();
     var url = $"http://127.0.0.1:{port}";
-    Task<McpClient> Connect() => McpClient.CreateAsync(new StdioClientTransport(new()
+    Task<McpClient> Connect(bool dashboard) => McpClient.CreateAsync(new StdioClientTransport(new()
     {
         Command = binary, WorkingDirectory = sandbox, Arguments = ["mcp", "--urls", url],
         EnvironmentVariables = new Dictionary<string, string?>
         {
             ["SERENA_HOME"] = Path.Combine(sandbox, "serena-home"),
             ["Pool__IdleTimeout"] = "00:00:01",
-            ["Pool__WebDashboard"] = "false",
-            ["Pool__WebDashboardOpenOnLaunch"] = "true"
+            ["Pool__WebDashboard"] = dashboard.ToString(),
+            ["Pool__WebDashboardOpenOnLaunch"] = "false"
         }
     }), cancellationToken: ct);
-    var clients = await Task.WhenAll(Connect(), Connect());
+
+    var clients = await Task.WhenAll(Connect(true), Connect(true));
     using var http = new HttpClient { BaseAddress = new Uri(url) };
-    await using (var httpClient = await McpClient.CreateAsync(new HttpClientTransport(new()
+    await using (var second = clients[1])
     {
-        Endpoint = new Uri(http.BaseAddress, "/mcp"), TransportMode = HttpTransportMode.StreamableHttp
-    }, http), cancellationToken: ct))
-    {
-        foreach (var path in new[] { "/", "/app.js", "/app.css", "/favicon.ico", "/api/workers", "/api/calls" })
+        string id;
+        await using (var first = clients[0])
         {
-            using var response = await http.GetAsync(path, ct);
-            Check(response.StatusCode == HttpStatusCode.NotFound, $"dashboard disabled: {path}");
-        }
-        Check((await httpClient.ListToolsAsync(cancellationToken: ct)).Count == 4, "HTTP MCP works with dashboard disabled");
-        await using (var second = clients[1])
-        {
-            string id;
-            await using (var first = clients[0])
-            {
-                var acquired = await first.CallToolAsync("acquire", new Dictionary<string, object?> { ["workdir"] = project }, cancellationToken: ct);
-                var text = acquired.Content.OfType<TextContentBlock>().Single().Text;
-                Check(acquired.IsError != true, text);
-                id = (string)JsonNode.Parse(text)!["instance_id"]!;
-            }
-            var released = await second.CallToolAsync("release", new Dictionary<string, object?> { ["instance_id"] = id }, cancellationToken: ct);
-            Check(released.IsError != true && bool.Parse(released.Content.OfType<TextContentBlock>().Single().Text), "independent stdio bridge lifetimes");
+            await WaitForDashboard(http, ct);
+            var acquired = await first.CallToolAsync("acquire", new Dictionary<string, object?> { ["workdir"] = project }, cancellationToken: ct);
+            var text = acquired.Content.OfType<TextContentBlock>().Single().Text;
+            Check(acquired.IsError != true, text);
+            id = (string)JsonNode.Parse(text)!["instance_id"]!;
         }
 
-        var active = Stopwatch.StartNew();
-        do
-        {
-            await Task.Delay(TimeSpan.FromSeconds(2), ct);
-            Check((await httpClient.ListToolsAsync(cancellationToken: ct)).Count == 4, "HTTP-only client keeps the host alive");
-        } while (active.Elapsed < TimeSpan.FromSeconds(20));
-        var afterIdle = await httpClient.CallToolAsync("acquire", new Dictionary<string, object?> { ["workdir"] = project }, cancellationToken: ct);
-        Check(afterIdle.IsError != true, "HTTP-only client acquires after the host idle check");
-        var httpLease = JsonNode.Parse(afterIdle.Content.OfType<TextContentBlock>().Single().Text)!["instance_id"]!.GetValue<string>();
-        var release = await httpClient.CallToolAsync("release", new Dictionary<string, object?> { ["instance_id"] = httpLease }, cancellationToken: ct);
-        Check(release.IsError != true && bool.Parse(release.Content.OfType<TextContentBlock>().Single().Text), "release HTTP-only lease");
+        var released = await second.CallToolAsync("release", new Dictionary<string, object?> { ["instance_id"] = id }, cancellationToken: ct);
+        Check(released.IsError != true && bool.Parse(released.Content.OfType<TextContentBlock>().Single().Text), "independent stdio bridge lifetimes");
     }
+
     using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
     wait.CancelAfter(TimeSpan.FromSeconds(35));
     while (true)
@@ -394,7 +388,34 @@ static async Task CheckColdStdio(string binary, string sandbox, string project, 
         catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused) { break; }
         await Task.Delay(200, wait.Token);
     }
-    Console.WriteLine("Passed: dashboard disabled with HTTP MCP and stdio available, shared leases and automatic host shutdown.");
+    Console.WriteLine("Passed: concurrent cold stdio startup shares one core and the automatic dashboard follows core shutdown.");
+
+    port = ReservePort();
+    url = $"http://127.0.0.1:{port}";
+    await using var disabled = await Connect(false);
+    Check((await disabled.ListToolsAsync(cancellationToken: ct)).Count == 4, "stdio works with dashboard disabled");
+    using var reservation = new TcpListener(IPAddress.Loopback, port);
+    reservation.Start();
+    Console.WriteLine("Passed: stdio-only core leaves the TCP port free.");
+}
+
+static async Task WaitForDashboard(HttpClient http, CancellationToken ct)
+{
+    using var ready = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    ready.CancelAfter(TimeSpan.FromSeconds(15));
+    while (true)
+    {
+        try
+        {
+            using var response = await http.GetAsync("/", ready.Token);
+            response.EnsureSuccessStatusCode();
+            return;
+        }
+        catch (HttpRequestException ex) when (ex.HttpRequestError == HttpRequestError.ConnectionError)
+        {
+            await Task.Delay(50, ready.Token);
+        }
+    }
 }
 
 static int ReservePort()

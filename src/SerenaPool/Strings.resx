@@ -98,11 +98,14 @@
   <data name="LoopbackRequired" xml:space="preserve"><value>Use a loopback address with a fixed port for --urls.</value></data>
   <data name="ManagedSettings" xml:space="preserve"><value>  Settings written by Serena Pool</value></data>
   <data name="McpConfigLine" xml:space="preserve"><value>  MCP config  {0}</value></data>
-  <data name="McpUsage" xml:space="preserve"><value>Usage: serena-pool mcp [--urls {0}]</value></data>
+  <data name="McpUsage" xml:space="preserve"><value>Usage: serena-pool mcp|dashboard [--urls {0}]</value></data>
   <data name="MissingJsonPath" xml:space="preserve"><value>JSON configuration path does not exist: {0}.</value></data>
   <data name="MissingReplTools" xml:space="preserve"><value>Serena did not provide the required REPL and initialization tools.</value></data>
   <data name="MissingWorkerPid" xml:space="preserve"><value>The Serena launcher did not report a process ID.</value></data>
-  <data name="PoolAddressOccupied" xml:space="preserve"><value>Address {0} is in use. Close the process using it or specify another local port with mcp --urls.</value></data>
+  <data name="DashboardAddressOccupied" xml:space="preserve"><value>Address {0} is in use. Close the process using it or specify another dashboard address with --urls.</value></data>
+  <data name="CoreAlreadyRunning" xml:space="preserve"><value>A core is already running for port {0}.</value></data>
+  <data name="DashboardDisabled" xml:space="preserve"><value>The dashboard is disabled by Pool__WebDashboard.</value></data>
+  <data name="DashboardStartFailed" xml:space="preserve"><value>Could not start the dashboard at {0}.</value></data>
   <data name="PoolConnectFailed" xml:space="preserve"><value>Cannot connect to Serena Pool ({0}). {1}</value></data>
   <data name="PositiveTimeoutsRequired" xml:space="preserve"><value>IdleTimeout and LeaseTimeout must be greater than zero.</value></data>
   <data name="SessionManagementFailed" xml:space="preserve"><value>Serena could not manage the lease sessions: {0}</value></data>

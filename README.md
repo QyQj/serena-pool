@@ -2,14 +2,14 @@
 
 **English** | [简体中文](https://github.com/QyQj/serena-pool/blob/main/README.zh-CN.md)
 
-Serena Pool lets multiple local MCP clients and coding agents share [Serena](https://github.com/oraios/serena) processes on the same machine. It runs at most one Serena process per project or Git worktree directory, gives each caller an isolated Python REPL session, exposes both `stdio` and Streamable HTTP MCP transports, and includes a local Web dashboard for inspecting workers and leases. Supports Windows, Linux, and macOS.
+Serena Pool lets multiple local MCP clients and coding agents share [Serena](https://github.com/oraios/serena) processes on the same machine. It runs at most one Serena process per project or Git worktree directory, gives each caller an isolated Python REPL session, exposes a `stdio` MCP transport, and includes an independent local Web dashboard for inspecting workers and leases. Supports Windows, Linux, and macOS.
 
 ## Features
 
 - **One worker per checkout / worktree**: Resolves `workdir` to its canonical physical path (including symlinks and junctions), so clients targeting the same repository reuse one warm Serena and language server process while separate Git worktrees run concurrently.
 - **Isolated REPL sessions (`leases`)**: Every `acquire(workdir)` opens a separate Serena REPL session with a private `instance_id`, keeping Python variables isolated per agent without duplicating language servers. Variables persist for the lifetime of the lease even if other agents repeatedly acquire and release the same worker.
 - **Serialized per-worker execution**: Calls targeting the same directory are queued and executed sequentially through a per-worker gate, preventing concurrent REPL or LSP state collisions.
-- **Shared `stdio` and Streamable HTTP pool**. The background manager serves both transports from one pool. Each `stdio` connection uses its own bridge to the manager over a local named pipe.
+- **Shared `stdio` pool**. Each client has its own bridge to the shared core over a local named pipe.
 - **One-command setup for 7 clients**: `serena-pool setup` registers the `serena-pool` MCP server and installs the companion `serena-pool` skill with pre-write conflict checks and atomic rollback.
 - **Local Web dashboard**: Monitor worker status, PIDs, queues, errors, and leases at `http://127.0.0.1:32980/`, release stale leases, and recycle idle workers. On Windows, open the dashboard from the notification area.
 - **Process-tree cleanup**: Contains spawned Serena and language server processes in a Windows Job Object (`KILL_ON_JOB_CLOSE`) on Windows or a dedicated POSIX process group with a parent-watching launcher on Linux and macOS.
@@ -17,22 +17,15 @@ Serena Pool lets multiple local MCP clients and coding agents share [Serena](htt
 ## How It Works
 
 ```text
-  MCP Client
-      │ stdio
-      ▼
-  Client Bridge Process (serena-pool mcp)
-      │ named pipe
-      ▼
-  ┌──────────────────────────────────────────────────────┐
-  │ ASP.NET Core Background Process (--background-serve) │
-  │ LocalPipeServer ─► PoolTools ─► InstancePool         │──► Serena Worker Process ─► Language Server
-  └──────────────────────────────────────────────────────┘
+MCP client ── stdio ── Bridge ── MCP pipe ──┐
+                                           ├── Core ── Serena workers
+Browser ── HTTP ── Dashboard ── Admin pipe ──┘
 ```
 
-1. **On-demand background host**. All `serena-pool mcp` bridges default to `http://127.0.0.1:32980`. Each bridge tries the pipe `serena-pool-<user>-<port>` using the configured port. If the connection times out, it attempts to start a detached `--background-serve` host at the same address and port. When concurrent starts target the same loopback IP address and TCP port, only one host can bind that endpoint. Different loopback addresses on the same port still use the same pipe name for a given user. Use different ports for independent pools.
-2. **Per-directory workers**. The pipe server and instance pool run inside the ASP.NET Core background process. When `PoolTools` handles `acquire(workdir)`, `InstancePool` starts a Serena worker (`serena start-mcp-server --transport stdio --project <workdir> --context ide --agent-interface repl --add-mode no-memories --enable-web-dashboard false --enable-gui-log-window false`) if the directory has no available worker. Each acquisition opens a new REPL session on that worker.
-3. **Failure isolation**: If a Serena worker exits unexpectedly or disconnects mid-call, only that worker transitions to `failed` and invalidates its leases; any in-flight call fails with an unknown-outcome error so the caller can inspect state before retrying, while workers for other directories stay alive.
-4. **Automatic recycling & shutdown**: Inactive leases expire after `Pool__LeaseTimeout` (paused while calls are queued or executing). Idle workers with zero leases and zero pending calls shut down after `Pool__IdleTimeout`. The auto-started host checks for idle shutdown every 15 seconds. It exits when there are no stdio clients or workers, no HTTP MCP request is in progress, and no HTTP MCP request has completed in the last 15 seconds.
+1. **On-demand core**. A `serena-pool mcp` bridge connects to a same-user named pipe and starts the core if needed. The selected dashboard port identifies the pool. An operating-system mutex elects one core per user and port. The core uses named pipes for both MCP and dashboard operations.
+2. **Per-directory workers**. The core starts one Serena REPL worker per project or Git worktree and opens a separate REPL session for each lease.
+3. **Independent dashboard**. When enabled, the core starts a separate ASP.NET Core dashboard process. That process alone binds the configured loopback TCP port. The dashboard reads state and runs management operations over its own named pipe. Restarting it preserves workers, active calls, leases, and call history in the core.
+4. **Automatic recycling and shutdown**. `Pool__LeaseTimeout` expires inactive leases and pauses during queued or running calls. `Pool__IdleTimeout` recycles workers with no leases or pending calls. When no stdio clients or workers remain, the core exits on its 15-second idle check. The automatically started dashboard exits with it.
 
 ## Prerequisites
 
@@ -67,15 +60,15 @@ serena-pool setup codex
 
 ### Upgrading
 
-To upgrade from `0.1.0-preview.7`, run `setup` from `0.1.0` for each configured client. For Codex:
+To upgrade from an earlier version, run `setup` from `0.2.0` for each configured client. For Codex:
 
 ```sh
-dotnet tool exec SerenaPool@0.1.0 -- setup codex
+dotnet tool exec SerenaPool@0.2.0 -- setup codex
 ```
 
-Include all installed clients that share the same skill directory in the same command, for example `setup codex cursor`. If you prefer using the global command, first run `dotnet tool update --global SerenaPool --version 0.1.0`, then run `serena-pool setup codex`.
+Include all installed clients that share the same skill directory in the same command, for example `setup codex cursor`. If you prefer using the global command, first run `dotnet tool update --global SerenaPool --version 0.2.0`, then run `serena-pool setup codex`.
 
-Release active leases and close clients connected to the old shared pool. After the old background process exits, start a new client session. Updating the installed command alone does not change the pinned client configurations.
+Release active leases and close clients connected to the old shared pool. After the old background process exits, start a new client session. Updating the installed command alone does not change the pinned client configurations. Migrate clients configured with an HTTP `/mcp` URL to stdio.
 
 ### Supported Clients (`setup`)
 
@@ -108,11 +101,12 @@ After setup finishes, it prints the package version, each registered config and 
 
 ```sh
 serena-pool mcp [--urls http://127.0.0.1:32980]
+serena-pool dashboard [--urls http://127.0.0.1:32980]
 serena-pool setup [harness ...]
 serena-pool --help
 ```
 
-### MCP Transports
+### MCP Connection
 
 - **stdio**: For manual client configuration, set the command to `serena-pool` (after global install) with `["mcp"]`, or use the pinned `dotnet tool exec SerenaPool@<version> -- mcp` command generated by `setup`:
 
@@ -127,9 +121,7 @@ serena-pool --help
   }
   ```
 
-- **Streamable HTTP**: Local clients can connect to `http://127.0.0.1:32980/mcp` directly. Requests must come from loopback and use a loopback Host. Browser requests must have a matching Origin.
-
-- **Custom ports**: Pass the same `--urls http://127.0.0.1:<port>` flag to `serena-pool mcp` for every stdio client that should share a pool, and use that port for the Web dashboard and `/mcp` endpoint. `--urls` must be a loopback `http` or `https` URL with a fixed non-zero port and no path, userinfo, query string, or fragment.
+- **Custom ports**: Pass the same `--urls http://127.0.0.1:<port>` flag to `serena-pool mcp` for every stdio client that should share a pool, and pass the same address to `serena-pool dashboard` when starting it independently. `--urls` must be a loopback `http` or `https` URL with a fixed non-zero port and no path, userinfo, query string, or fragment.
 
 ### MCP Tools & REPL Workflow
 
@@ -170,9 +162,17 @@ Open [http://127.0.0.1:32980/](http://127.0.0.1:32980/) in your browser (replace
 - **Call log and REPL usage**: `/api/calls` lists the last 200 completed REPL requests in memory with the working directory, public lease number, status, and elapsed time including queueing. The dashboard ranks the Serena facade and REPL methods actually invoked across those requests and reports how many calls provided traces. The log retains only these metadata fields and the invoked tool names and counts. Restarting the pool clears the history.
 - **Live updates**: Polls worker status and call history every 2.5 seconds while the page is visible. Closing the browser tab does not stop the pool host.
 
-The dashboard is available on Windows, macOS, and Linux. On Windows, select the Serena Pool notification-area icon to open it. Each shared pool has one notification-area icon. The dashboard uses the project icon in the browser and stays enabled by default.
+The dashboard is available on Windows, macOS, and Linux. On Windows, select the Serena Pool notification-area icon to open it. Each shared pool has one notification-area icon. The dashboard uses the project icon in the browser and stays enabled by default. If the dashboard stops while the core is running, run `serena-pool dashboard` to start it again. A manually started dashboard reports HTTP 503 for management requests while the core is unavailable.
 
-To disable the page, its management API, call tracing, and the tray icon, add `Pool__WebDashboard = "false"` to your MCP server's environment configuration. Both MCP transports remain available. To open the enabled page automatically when the shared pool starts, set `Pool__WebDashboardOpenOnLaunch = "true"`.
+To disable the page, its management API, call tracing, and the tray icon, add `Pool__WebDashboard = "false"` to your MCP server's environment configuration. Stdio remains available and the pool leaves the TCP port free. To open the enabled page automatically when the shared pool starts, set `Pool__WebDashboardOpenOnLaunch = "true"`.
+
+## Process Logs
+
+The dashboard, stdio bridge, and core write separate `dashboard-*.log`, `stdio-*.log`, and `core-*.log` files. Each file name includes the UTC start time and process ID. Logs cover startup, connections, shutdown, and failures. They omit MCP messages and REPL inputs and results.
+
+- Windows: `%LOCALAPPDATA%\SerenaPool\logs`
+- Linux: `$XDG_STATE_HOME/SerenaPool/logs`, defaulting to `~/.local/state/SerenaPool/logs`
+- macOS: `~/Library/Logs/SerenaPool`
 
 ## Environment Variables
 
@@ -201,13 +201,13 @@ dotnet build SerenaPool.slnx -c Release
 dotnet pack src/SerenaPool -c Release
 
 # Verify the locally packed tool
-dotnet tool exec SerenaPool@0.1.0 --source src/SerenaPool/bin/Release -- --help
+dotnet tool exec SerenaPool@0.2.0 --source src/SerenaPool/bin/Release -- --help
 
 # Run the end-to-end smoke test against a writable temporary directory
 dotnet run --project tests/SerenaPool.Smoke -c Release -- "<absolute-path-to-writable-temp-dir>"
 ```
 
-The smoke test creates temporary Git worktrees and an isolated `SERENA_HOME` inside the directory you pass, then verifies real Serena language servers, `stdio` and Streamable HTTP transports, lease isolation, queued call cancellation, dashboard APIs, worker crash isolation, process-tree cleanup, and automatic idle shutdown.
+The smoke test creates temporary Git worktrees and an isolated `SERENA_HOME` inside the directory you pass, then verifies real Serena language servers, independent dashboard restart, `stdio` access, lease isolation, queued call cancellation, dashboard APIs, worker crash isolation, process-tree cleanup, and automatic idle shutdown.
 
 To publish a framework-dependent single-file executable (replace `win-x64` with `linux-x64`, `linux-arm64`, `osx-x64`, or `osx-arm64`):
 

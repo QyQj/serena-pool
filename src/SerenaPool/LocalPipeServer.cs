@@ -1,12 +1,11 @@
 using System.IO.Pipes;
-using Microsoft.AspNetCore.Hosting.Server;
-using Microsoft.AspNetCore.Hosting.Server.Features;
+using System.Security.Principal;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 
 namespace SerenaPool;
 
-internal sealed class LocalPipeServer(IServer web, IHostApplicationLifetime lifetime, IServiceProvider services,
+internal sealed class LocalPipeServer(LocalPipeAddress address, IHostApplicationLifetime lifetime, IServiceProvider services,
     IOptions<McpServerOptions> options, InstancePool pool, ILogger<LocalPipeServer> log) : BackgroundService
 {
     private static readonly TimeSpan IdleCheckInterval = TimeSpan.FromSeconds(15);
@@ -14,22 +13,26 @@ internal sealed class LocalPipeServer(IServer web, IHostApplicationLifetime life
 
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var registration = lifetime.ApplicationStarted.Register(() => started.TrySetResult());
-        await started.Task.WaitAsync(stop);
-        var address = new Uri(web.Features.Get<IServerAddressesFeature>()!.Addresses.First());
-        var name = StdioBridge.PipeName(address.Port);
         while (!stop.IsCancellationRequested)
         {
-            var pipe = new NamedPipeServerStream(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
-                PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+            var pipe = address.Listen();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop);
             timeout.CancelAfter(IdleCheckInterval);
             try { await pipe.WaitForConnectionAsync(timeout.Token); }
             catch (OperationCanceledException) when (!stop.IsCancellationRequested)
             {
                 pipe.Dispose();
-                if (Volatile.Read(ref connections) == 0 && pool.IsHostIdle(IdleCheckInterval)) lifetime.StopApplication();
+                if (Volatile.Read(ref connections) == 0 && pool.IsHostIdle())
+                {
+                    log.LogInformation("No active clients or workers, stopping the core");
+                    lifetime.StopApplication();
+                }
+                continue;
+            }
+            catch (UnauthorizedAccessException error)
+            {
+                pipe.Dispose();
+                log.LogWarning(error, "MCP pipe rejected a client");
                 continue;
             }
             catch { pipe.Dispose(); throw; }
@@ -48,7 +51,27 @@ internal sealed class LocalPipeServer(IServer web, IHostApplicationLifetime life
             await server.RunAsync(stop);
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
-        catch (Exception ex) { log.LogWarning(ex, LocalText("StdioDisconnected")); }
+        catch (Exception error) { log.LogWarning("{Message} ({ErrorType})", LocalText("StdioDisconnected"), error.GetType().Name); }
         finally { Interlocked.Decrement(ref connections); }
+    }
+}
+
+internal sealed class LocalPipeAddress(int port)
+{
+    private const PipeOptions Options = PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly;
+    public string Name { get; } = $"serena-pool-core-{UserId()}-{port}";
+
+    public NamedPipeServerStream Listen(bool dashboard = false) => new(GetName(dashboard), PipeDirection.InOut,
+        NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, Options);
+
+    public NamedPipeClientStream ConnectClient(bool dashboard = false) => new(".", GetName(dashboard), PipeDirection.InOut, Options);
+
+    private string GetName(bool dashboard) => dashboard ? Name + "-web" : Name;
+
+    internal static string UserId()
+    {
+        if (!OperatingSystem.IsWindows()) return ProcessLauncher.geteuid().ToString();
+        using var identity = WindowsIdentity.GetCurrent();
+        return identity.User!.Value;
     }
 }

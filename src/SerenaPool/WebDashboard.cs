@@ -12,13 +12,46 @@ internal static class WebDashboard
 
     public static void Configure(WebApplication app, Uri address, bool openOnLaunch)
     {
-        app.MapGet("/api/workers", (InstancePool pool) => pool.Snapshot());
-        app.MapGet("/api/calls", (InstancePool pool) => pool.RecentCalls());
-        app.MapDelete("/api/leases/{number:long}", (long number, InstancePool pool) =>
-            pool.ReleaseByNumber(number) ? Results.NoContent() : Results.NotFound());
-        app.MapDelete("/api/workers/{number:long}", async (long number, InstancePool pool, HttpRequest request) =>
-            await pool.RecycleAsync(number) ? Results.NoContent() :
-                Results.Conflict(Messages.For(ForRequest(request), "DashboardConflict")));
+        var pipe = new LocalPipeAddress(address.Port);
+        var log = app.Logger;
+        var coreUnavailable = 0;
+        app.MapGet("/api/workers", (HttpRequest request) => ForwardAsync(request, DashboardOperation.Workers));
+        app.MapGet("/api/calls", (HttpRequest request) => ForwardAsync(request, DashboardOperation.Calls));
+        app.MapDelete("/api/leases/{number:long}", (long number, HttpRequest request) =>
+            ForwardAsync(request, DashboardOperation.Release, number));
+        app.MapDelete("/api/workers/{number:long}", (long number, HttpRequest request) =>
+            ForwardAsync(request, DashboardOperation.Recycle, number));
+
+        async Task<IResult> ForwardAsync(HttpRequest request, DashboardOperation operation, long number = 0)
+        {
+            try
+            {
+                var reply = await DashboardPipeServer.SendAsync(pipe, new(operation, number), request.HttpContext.RequestAborted);
+                if (Interlocked.Exchange(ref coreUnavailable, 0) == 1)
+                    log.LogInformation("Management pipe connection restored");
+                return reply.Status switch
+                {
+                    200 when reply.Payload is not null => Results.Json(reply.Payload),
+                    204 => Results.NoContent(),
+                    400 => Results.BadRequest(),
+                    404 => Results.NotFound(),
+                    409 => Results.Conflict(Messages.For(ForRequest(request), "DashboardConflict")),
+                    500 => Results.StatusCode(StatusCodes.Status500InternalServerError),
+                    _ => Results.StatusCode(StatusCodes.Status502BadGateway)
+                };
+            }
+            catch (TimeoutException)
+            {
+                if (Interlocked.Exchange(ref coreUnavailable, 1) == 0)
+                    log.LogWarning("Management pipe unavailable for pool address {Address}", address);
+                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            }
+            catch (Exception error) when (error is IOException or JsonException)
+            {
+                log.LogWarning(error, "Management pipe disconnected");
+                return Results.StatusCode(StatusCodes.Status502BadGateway);
+            }
+        }
 
         var page = ReadAsset("index.html");
         var script = ReadAsset("app.js");
@@ -49,9 +82,9 @@ internal static class WebDashboard
         app.Lifetime.ApplicationStarted.Register(() =>
         {
             if (OperatingSystem.IsWindows() && Environment.UserInteractive)
-                WindowsDashboardTray.Start(address, openOnLaunch, app.Lifetime.ApplicationStopping);
+                WindowsDashboardTray.Start(address, openOnLaunch, app.Lifetime.ApplicationStopping, log);
             else if (openOnLaunch)
-                OpenBrowser(address);
+                OpenBrowser(address, log);
         });
     }
 
@@ -64,7 +97,7 @@ internal static class WebDashboard
         return reader.ReadToEnd();
     }
 
-    public static void OpenBrowser(Uri address)
+    public static void OpenBrowser(Uri address, ILogger log)
     {
         try
         {
@@ -72,7 +105,7 @@ internal static class WebDashboard
         }
         catch (Exception error) when (error is Win32Exception or InvalidOperationException)
         {
-            Console.Error.WriteLine(LocalText("DashboardOpenFailed", address, error.Message));
+            log.LogWarning(error, "{Message}", LocalText("DashboardOpenFailed", address, error.Message));
         }
     }
 }

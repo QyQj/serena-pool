@@ -2,14 +2,14 @@
 
 [English](README.md) | **简体中文**
 
-Serena Pool 让同一台电脑上的多个 MCP 客户端和编码 Agent 共用 [Serena](https://github.com/oraios/serena) 进程。它按项目或 Git worktree 目录最多启动一个 Serena 实例，为每次领用提供独立的 Python REPL 会话，同时提供 `stdio` 与 Streamable HTTP MCP 入口以及本机 Web 管理页。支持 Windows、Linux 和 macOS。
+Serena Pool 让同一台电脑上的多个 MCP 客户端和编码 Agent 共用 [Serena](https://github.com/oraios/serena) 进程。它按项目或 Git worktree 目录最多启动一个 Serena 实例，为每次领用提供独立的 Python REPL 会话，同时提供 `stdio` MCP 入口和独立的本机 Web 管理页。支持 Windows、Linux 和 macOS。
 
 ## 核心特性
 
 - **按工作目录 / worktree 复用进程**：将 `workdir` 规范化为物理绝对路径（自动解析符号链接与目录联接），同一仓库的多个客户端共用同一个预热好的 Serena 与语言服务器进程，不同 Git worktree 并行运行、互不干扰。
 - **隔离的 REPL 会话（领用 / Lease）**：每次调用 `acquire(workdir)` 都会在 Serena 中开启独立的 REPL 会话并返回私有 `instance_id`，各 Agent 的 Python 变量命名空间相互隔离，同时避免重复启动语言服务器。只要领用有效，其他 Agent 反复领用、释放同一实例也会保留当前领用的变量。
 - **同目录串行调度**：发往同一项目目录的调用通过实例内互斥门控排队顺序执行，防止并发操作 REPL 或 LSP 状态产生冲突。
-- **多客户端共享（`stdio` 与 Streamable HTTP）**　后台管理进程用同一个实例池处理两种连接。每条 `stdio` 连接各自通过一个桥接进程，经本机命名管道接入后台。
+- **多客户端共享 stdio 实例池**。每个客户端经独立的桥接进程和本机命名管道连接共享核心。
 - **一条命令接入 7 种客户端**：`serena-pool setup` 可同时写入 MCP 注册项并安装配套 `serena-pool` skill，支持写入前冲突检查与失败自动回滚。
 - **本机 Web 管理页**：在 `http://127.0.0.1:32980/` 实时查看实例状态、PID、执行/排队数、最近错误和领用记录，支持手动释放滞留领用与回收空闲实例。Windows 上可从系统托盘打开管理页。
 - **子进程树可靠回收**：Windows 使用 Job Object（`KILL_ON_JOB_CLOSE`），Linux 和 macOS 使用独立 POSIX 进程组配合父进程守望启动器，即使管理进程异常退出也不会残留语言服务器子进程。
@@ -17,22 +17,15 @@ Serena Pool 让同一台电脑上的多个 MCP 客户端和编码 Agent 共用 [
 ## 工作原理
 
 ```text
-  MCP 客户端
-      │ stdio
-      ▼
-  客户端桥接进程 (serena-pool mcp)
-      │ 命名管道
-      ▼
-  ┌────────────────────────────────────────────────┐
-  │ ASP.NET Core 管理后台进程 (--background-serve) │
-  │ LocalPipeServer ─► PoolTools ─► InstancePool   │──► Serena 工作进程 ─► 语言服务器
-  └────────────────────────────────────────────────┘
+MCP 客户端 ── stdio ── 桥接器 ── MCP 管道 ──┐
+                                           ├── 核心进程 ── Serena 工作进程
+浏览器 ── HTTP ── 管理后台 ── 管理管道 ───────┘
 ```
 
-1. **按需启动共享管理进程**　所有 `serena-pool mcp` 桥接进程默认使用 `http://127.0.0.1:32980`。桥接先按配置的端口连接 `serena-pool-<user>-<port>`。连接超时后，它会尝试启动脱离终端的 `--background-serve` 后台进程，并传入同一个监听地址和端口。多个进程同时启动且使用同一个回环 IP 地址和 TCP 端口时，只有一个能绑定该监听地址。同一用户在不同回环地址使用相同端口时，管道名仍相同。要运行独立的实例池，请使用不同端口。
-2. **按目录管理实例**　管道服务端与实例池运行在同一个 ASP.NET Core 后台进程中。`PoolTools` 收到 `acquire(workdir)` 后交给 `InstancePool`。如果该目录没有可用实例，`InstancePool` 会启动 Serena 工作进程（`serena start-mcp-server --transport stdio --project <workdir> --context ide --agent-interface repl --add-mode no-memories --enable-web-dashboard false --enable-gui-log-window false`）。每次领用都会在对应工作进程中新建独立的 REPL 会话。
-3. **故障隔离**：若某个 Serena 进程意外退出或中断，仅该实例被标记为 `failed` 并使其领用失效；正在执行的调用会返回“执行结果未知”错误以便调用方先核对状态再决定是否重试，其他工作目录的实例不受影响。
-4. **自动回收与空闲退出**：无活动领用在超过 `Pool__LeaseTimeout` 后自动回收（排队与执行期间暂停计时）；无领用且无待处理调用的空闲实例在超过 `Pool__IdleTimeout` 后停止。自动启动的后台进程每 15 秒检查一次。所有 stdio 客户端断开、全部实例回收、没有正在处理的 HTTP MCP 请求，且最近 15 秒没有 HTTP MCP 请求完成时，后台退出。
+1. **按需启动核心**。每个 `serena-pool mcp` 桥接器通过仅限同一用户的命名管道连接核心，需要时自动启动。使用配置的管理页端口标识实例池。多个桥接器同时启动时，由操作系统互斥锁保证同一用户、同一端口只启动一个核心。核心通过命名管道处理 MCP 和管理请求。
+2. **按目录管理实例**。核心按项目或 Git worktree 启动 Serena REPL 工作进程，为每次领用打开独立的 REPL 会话。
+3. **管理后台独立运行**。启用时，核心启动独立的 ASP.NET Core 管理后台，由它监听配置的回环 TCP 端口。管理后台走专用管道读取状态和执行管理操作。单独重启管理后台时，核心保留实例、正在执行的调用、领用和调用历史。
+4. **自动回收与空闲退出**。`Pool__LeaseTimeout` 回收无活动领用，排队和执行期间暂停计时。`Pool__IdleTimeout` 回收无领用、无待处理调用的空闲实例。核心每 15 秒检查一次，所有 stdio 客户端断开且实例全部回收后退出，自动启动的管理后台随之退出。
 
 ## 运行前提
 
@@ -67,13 +60,13 @@ serena-pool setup codex
 
 ### 升级
 
-从 `0.1.0-preview.7` 升级时，用 `0.1.0` 为已配置的客户端重新执行 `setup`。以 Codex 为例：
+从旧版本升级时，用 `0.2.0` 为已配置的客户端重新执行 `setup`。以 Codex 为例：
 
 ```sh
-dotnet tool exec SerenaPool@0.1.0 -- setup codex
+dotnet tool exec SerenaPool@0.2.0 -- setup codex
 ```
 
-已安装的客户端如果共用同一份 skill，请在同一条命令里一起更新，例如 `setup codex cursor`。习惯使用全局命令时，先运行 `dotnet tool update --global SerenaPool --version 0.1.0`，再执行 `serena-pool setup codex`。
+已安装的客户端如果共用同一份 skill，请在同一条命令里一起更新，例如 `setup codex cursor`。习惯使用全局命令时，先运行 `dotnet tool update --global SerenaPool --version 0.2.0`，再执行 `serena-pool setup codex`。
 
 释放正在使用的领用并关闭连接旧共享池的客户端。等旧后台进程退出后，再开启新会话。仅升级全局工具不会修改客户端里固定的版本。
 
@@ -102,12 +95,15 @@ dotnet tool exec SerenaPool@0.1.0 -- setup codex
 
 配置完成后，终端会输出版本、各客户端的配置和 skill 路径、本次写入的 Serena Pool 管理项、备份路径（如有）及运行地址。之后在客户端开启新会话即可加载。
 
+通过 HTTP `/mcp` 地址接入的客户端需要改用 stdio。
+
 ## 连接与管理
 
 ### CLI 命令
 
 ```sh
 serena-pool mcp [--urls http://127.0.0.1:32980]
+serena-pool dashboard [--urls http://127.0.0.1:32980]
 serena-pool setup [harness ...]
 serena-pool --help
 ```
@@ -127,9 +123,7 @@ serena-pool --help
   }
   ```
 
-- **Streamable HTTP**：本机客户端可直接连接 `http://127.0.0.1:32980/mcp`。请求须来自回环地址且使用回环 Host，浏览器请求的 Origin 须匹配。
-
-- **自定义端口**：如需更换端口，请为需要共享实例池的所有 stdio 客户端 `mcp` 命令传入相同的 `--urls http://127.0.0.1:<端口>`，并在 Web 管理页和 `/mcp` 地址中使用同一端口。`--urls` 必须是带固定非零端口的本机回环 `http` 或 `https` 地址，且不能包含路径、用户信息、查询参数或片段。
+- **自定义端口**：如需更换端口，请为需要共享实例池的所有 stdio 客户端 `mcp` 命令传入相同的 `--urls http://127.0.0.1:<端口>`，单独启动管理后台时也给 `serena-pool dashboard` 传入同一地址。`--urls` 必须是带固定非零端口的本机回环 `http` 或 `https` 地址，且不能包含路径、用户信息、查询参数或片段。
 
 ### MCP 工具与 REPL 用法
 
@@ -170,15 +164,23 @@ symbols
 - **调用日志与 REPL 工具统计**：`/api/calls` 在内存中保留最近 200 条已结束的 REPL 请求，包括工作目录、公开领用编号、状态和含排队时间的耗时。管理页按这些请求中实际执行的 Serena 工具和 REPL 方法的调用次数排序，并显示有跟踪数据的请求数。日志只保存元数据，重启共享池后清空。
 - **自动刷新**：页面可见时每 2.5 秒更新实例状态和调用历史。关闭浏览器页面不会停止后台实例池。
 
-Windows、macOS 和 Linux 都提供管理页，浏览器标签使用 Serena Pool 图标。Windows 上每个共享池还会显示一个同款托盘图标，点击即可用默认浏览器打开管理页。管理页默认启用，浏览器按需打开。
+Windows、macOS 和 Linux 都提供管理页，浏览器标签使用 Serena Pool 图标。Windows 上每个共享池还会显示一个同款托盘图标，点击即可用默认浏览器打开管理页。管理页默认启用，浏览器按需打开。核心仍运行时，可用 `serena-pool dashboard` 单独重启管理后台。手动启动的管理后台在核心不可用时会对管理请求返回 HTTP 503。
 
-如需关闭管理页、管理 API、调用跟踪和托盘，在 MCP 条目的环境配置中将 `Pool__WebDashboard` 设为 `"false"`。HTTP MCP 和 stdio 照常使用。若希望共享池启动时自动打开已启用的管理页，将 `Pool__WebDashboardOpenOnLaunch` 设为 `"true"`。
+如需关闭管理页、管理 API、调用跟踪和托盘，在 MCP 条目的环境配置中将 `Pool__WebDashboard` 设为 `"false"`。stdio 照常使用，实例池不占用 TCP 端口。若希望共享池启动时自动打开已启用的管理页，将 `Pool__WebDashboardOpenOnLaunch` 设为 `"true"`。
 
 在 Codex 中，把开关加到 `[mcp_servers.serena-pool]` 的现有 `env` 表中，并保留 `setup` 写入的 Serena 路径。例如：
 
 ```toml
 env = { Pool__Executable = 'C:\tools\serena.exe', Pool__WebDashboard = "false" }
 ```
+
+## 进程日志
+
+管理后台、stdio 桥接器和核心分别写入 `dashboard-*.log`、`stdio-*.log` 和 `core-*.log`。文件名包含 UTC 启动时间和 PID。日志记录启动、连接、退出及故障，省略 MCP 消息和 REPL 输入及输出。
+
+- Windows：`%LOCALAPPDATA%\SerenaPool\logs`
+- Linux：`$XDG_STATE_HOME/SerenaPool/logs`，默认 `~/.local/state/SerenaPool/logs`
+- macOS：`~/Library/Logs/SerenaPool`
 
 ## 环境变量
 
@@ -207,13 +209,13 @@ dotnet build SerenaPool.slnx -c Release
 dotnet pack src/SerenaPool -c Release
 
 # 验证本地打包产物
-dotnet tool exec SerenaPool@0.1.0 --source src/SerenaPool/bin/Release -- --help
+dotnet tool exec SerenaPool@0.2.0 --source src/SerenaPool/bin/Release -- --help
 
 # 使用真实 Serena 与临时目录运行端到端冒烟测试
 dotnet run --project tests/SerenaPool.Smoke -c Release -- "<可写临时目录的绝对路径>"
 ```
 
-冒烟测试会在指定目录中创建临时 Git worktree 与独立的 `SERENA_HOME`，使用真实 Serena 与语言服务器验证 `stdio` 与 Streamable HTTP 传输、会话命名空间隔离、排队调用取消、Web 管理接口、实例崩溃隔离、子进程树清理及自动空闲退出。
+冒烟测试会在指定目录中创建临时 Git worktree 与独立的 `SERENA_HOME`，使用真实 Serena 与语言服务器验证管理后台独立重启、`stdio` 访问、会话命名空间隔离、排队调用取消、Web 管理接口、实例崩溃隔离、子进程树清理及自动空闲退出。
 
 也可发布依赖系统 .NET 运行时的单文件可执行程序（将 `win-x64` 替换为 `linux-x64`、`linux-arm64`、`osx-x64` 或 `osx-arm64` 可生成其他平台版本）：
 

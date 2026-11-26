@@ -98,11 +98,14 @@
   <data name="LoopbackRequired" xml:space="preserve"><value>请为 --urls 指定包含固定端口的本机回环地址。</value></data>
   <data name="ManagedSettings" xml:space="preserve"><value>  写入内容（Serena Pool 管理项）</value></data>
   <data name="McpConfigLine" xml:space="preserve"><value>  MCP 配置    {0}</value></data>
-  <data name="McpUsage" xml:space="preserve"><value>用法：serena-pool mcp [--urls {0}]</value></data>
+  <data name="McpUsage" xml:space="preserve"><value>用法：serena-pool mcp|dashboard [--urls {0}]</value></data>
   <data name="MissingJsonPath" xml:space="preserve"><value>JSON 配置路径不存在：{0}。</value></data>
   <data name="MissingReplTools" xml:space="preserve"><value>Serena 未提供所需的 REPL 与初始化工具。</value></data>
   <data name="MissingWorkerPid" xml:space="preserve"><value>未收到 Serena 启动进程 ID。</value></data>
-  <data name="PoolAddressOccupied" xml:space="preserve"><value>地址 {0} 已被占用。请关闭占用进程，或用 mcp --urls 指定其他本机端口。</value></data>
+  <data name="DashboardAddressOccupied" xml:space="preserve"><value>地址 {0} 已被占用。请关闭占用进程，或用 --urls 指定其他管理页地址。</value></data>
+  <data name="CoreAlreadyRunning" xml:space="preserve"><value>端口 {0} 对应的核心进程已在运行。</value></data>
+  <data name="DashboardDisabled" xml:space="preserve"><value>Pool__WebDashboard 已禁用管理页。</value></data>
+  <data name="DashboardStartFailed" xml:space="preserve"><value>无法启动地址为 {0} 的管理页。</value></data>
   <data name="PoolConnectFailed" xml:space="preserve"><value>无法连接 Serena Pool（{0}）。{1}</value></data>
   <data name="PositiveTimeoutsRequired" xml:space="preserve"><value>IdleTimeout 和 LeaseTimeout 必须大于零。</value></data>
   <data name="SessionManagementFailed" xml:space="preserve"><value>Serena 无法管理领用会话：{0}</value></data>

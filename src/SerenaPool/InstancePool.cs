@@ -12,7 +12,7 @@ internal sealed record CallLog(DateTimeOffset At, string Workdir, long Lease, st
     double ElapsedMs, Dictionary<string, int>? Tools);
 internal sealed record CallHistory(int Capacity, CallLog[] Calls);
 
-internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifetime lifetime) : BackgroundService
+internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifetime lifetime, ILogger<InstancePool> log) : BackgroundService
 {
     private sealed class Worker(long number, string path)
     {
@@ -54,28 +54,10 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
     private readonly Dictionary<Guid, Lease> leases = [];
     private readonly Queue<CallLog> calls = new(CallHistoryCapacity);
     private long nextNumber;
-    private int httpRequests;
-    private long lastHttpCompletion;
 
-    public async Task TrackHttpRequestAsync(HttpContext context, RequestDelegate next)
+    public bool IsHostIdle()
     {
-        lock (sync) httpRequests++;
-        try { await next(context); }
-        finally
-        {
-            lock (sync)
-            {
-                httpRequests--;
-                lastHttpCompletion = Stopwatch.GetTimestamp();
-            }
-        }
-    }
-
-    public bool IsHostIdle(TimeSpan interval)
-    {
-        lock (sync)
-            return workers.Count == 0 && httpRequests == 0 &&
-                Stopwatch.GetElapsedTime(lastHttpCompletion) >= interval;
+        lock (sync) return workers.Count == 0;
     }
 
     public Task<Acquisition> AcquireAsync(string workdir, CancellationToken token)
@@ -98,6 +80,7 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
             {
                 var backend = await SerenaProcess.StartAsync(path, settings, lifetime.ApplicationStopping);
                 lock (sync) worker.Backend = backend;
+                log.LogInformation("Worker {Worker} started (PID {Pid})", worker.Number, backend.Pid);
             }
             var (session, instructions) = await worker.Backend.OpenSessionAsync(path, lifetime.ApplicationStopping);
             lock (sync)
@@ -185,7 +168,12 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
                 backend = worker.Backend;
                 worker.Backend = null;
             }
-            if (backend is not null) await backend.DisposeAsync();
+            if (backend is null) log.LogWarning(ex, "Worker {Worker} could not start", worker.Number);
+            else
+            {
+                log.LogWarning("Worker {Worker} failed ({ErrorType})", worker.Number, ex.GetType().Name);
+                await backend.DisposeAsync();
+            }
             throw new McpException(worker.Error, ex);
         }
         finally
@@ -255,6 +243,7 @@ internal sealed class InstancePool(PoolSettings settings, IHostApplicationLifeti
             workers.Remove(worker.Path);
         }
         if (worker.Backend != null) await worker.Backend.DisposeAsync();
+        log.LogInformation("Worker {Worker} recycled by the dashboard", number);
         return true;
     }
 

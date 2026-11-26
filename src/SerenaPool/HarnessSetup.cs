@@ -44,7 +44,7 @@ internal static class HarnessSetup
                 throw new ArgumentException(LocalText("UnknownTarget", argument));
         }).Distinct().Select(target => target.ResolvePaths()).ToArray();
 
-        using var mutex = new Mutex(false, $"{StdioBridge.PipeName(0)}-setup");
+        using var mutex = new Mutex(false, $"serena-pool-{LocalPipeAddress.UserId()}-0-setup");
         try
         {
             if (!mutex.WaitOne(0))
@@ -219,11 +219,7 @@ internal static class HarnessSetup
         Console.WriteLine(LocalText("RuntimeDetails"));
         Console.WriteLine($"  Serena      {executable}");
         foreach (var url in urls)
-        {
-            var address = url.TrimEnd('/');
-            Console.WriteLine(LocalText("WebAddressLine", address));
-            Console.WriteLine($"  HTTP MCP    {address}/mcp");
-        }
+            Console.WriteLine(LocalText("WebAddressLine", url.TrimEnd('/')));
     }
 
     private static bool SameUtf8File(SetupFiles.Snapshot file, string content) =>

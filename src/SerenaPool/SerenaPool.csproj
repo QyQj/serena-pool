@@ -11,12 +11,12 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>serena-pool</ToolCommandName>
     <PackageId>SerenaPool</PackageId>
-    <VersionPrefix>0.1.0</VersionPrefix>
+    <VersionPrefix>0.2.0</VersionPrefix>
     <Version Condition="'$(PackageVersion)' != ''">$(PackageVersion)</Version>
     <PackageType>DotnetTool;McpServer</PackageType>
     <Authors>Ejy Chien</Authors>
     <Copyright>Copyright (c) 2026 Ejy Chien</Copyright>
-    <Description>Share local Serena REPL workers across MCP clients, with stdio and HTTP transports and a web dashboard.</Description>
+    <Description>Share local Serena REPL workers across MCP clients, with stdio and a separate web dashboard.</Description>
     <PackageTags>serena;mcp;dotnet-tool;language-server</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -26,7 +26,7 @@
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <DebugType>embedded</DebugType>
-    <PackageReleaseNotes>First stable release for Windows, Linux, and macOS. Active leases retain their REPL state across worker reuse, and active HTTP MCP clients keep the shared host running. To upgrade from preview.7, rerun setup for your configured clients.</PackageReleaseNotes>
+    <PackageReleaseNotes>The Web dashboard runs independently from the shared worker pool. MCP clients connect via stdio. The dashboard, stdio bridge, and core write separate per-user logs.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -44,7 +44,7 @@
       <_Parameter2>$(Version)</_Parameter2>
     </AssemblyAttribute>
     <PackageReference Include="Tomlyn" Version="0.19.0" />
-    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.4.0" />
+    <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
   </ItemGroup>
 
   <Target Name="GenerateMcpMetadata" BeforeTargets="_GetPackageFiles">

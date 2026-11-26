@@ -13,6 +13,15 @@ internal sealed partial class PoolSettings
     public bool WebDashboard { get; init; } = true;
     public bool WebDashboardOpenOnLaunch { get; init; }
 
+    public static Uri ReadAddress(IConfiguration configuration)
+    {
+        if (!Uri.TryCreate(configuration["urls"] ?? DefaultAddress, UriKind.Absolute, out var address) ||
+            !address.IsLoopback || address.Scheme is not ("http" or "https") || address.Port == 0 ||
+            address.AbsolutePath != "/" || address.UserInfo.Length > 0 || address.Query.Length > 0 || address.Fragment.Length > 0)
+            throw new ArgumentException(LocalText("LoopbackRequired"));
+        return address;
+    }
+
     public string ResolveExecutable()
     {
         var fileName = OperatingSystem.IsWindows() ? "serena.exe" : "serena";

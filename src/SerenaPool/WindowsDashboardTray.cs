@@ -19,20 +19,20 @@ internal static partial class WindowsDashboardTray
     private const uint IconFormatVersion = 0x00030000;
     private const uint MessageIconTip = 0x87; // NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP
 
-    public static void Start(Uri address, bool openOnLaunch, CancellationToken stopping)
+    public static void Start(Uri address, bool openOnLaunch, CancellationToken stopping, ILogger log)
     {
         var thread = new Thread(() =>
         {
             if (openOnLaunch && !stopping.IsCancellationRequested)
-                WebDashboard.OpenBrowser(address);
-            try { Run(address, stopping); }
-            catch (Win32Exception error) { Console.Error.WriteLine(LocalText("TrayStartupFailed", error.Message)); }
+                WebDashboard.OpenBrowser(address, log);
+            try { Run(address, stopping, log); }
+            catch (Win32Exception error) { log.LogWarning(error, "{Message}", LocalText("TrayStartupFailed", error.Message)); }
         }) { IsBackground = true, Name = "Serena Pool Tray" };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
     }
 
-    private static unsafe void Run(Uri address, CancellationToken stopping)
+    private static unsafe void Run(Uri address, CancellationToken stopping, ILogger log)
     {
         if (stopping.IsCancellationRequested)
             return;
@@ -42,7 +42,7 @@ internal static partial class WindowsDashboardTray
         if (window == 0)
             throw new Win32Exception(Marshal.GetLastPInvokeError());
 
-        var context = GCHandle.Alloc(address);
+        var context = GCHandle.Alloc((address, log));
         nint icon = 0;
         try
         {
@@ -105,7 +105,8 @@ internal static partial class WindowsDashboardTray
         }
         if (message == TrayMessage && (ushort)lParam is LeftButtonUp or NinKeySelect)
         {
-            WebDashboard.OpenBrowser((Uri)GCHandle.FromIntPtr((nint)data).Target!);
+            var (address, log) = ((Uri, ILogger))GCHandle.FromIntPtr((nint)data).Target!;
+            WebDashboard.OpenBrowser(address, log);
             return 0;
         }
         return DefSubclassProc(window, message, wParam, lParam);
