@@ -70,10 +70,10 @@ serena-pool setup codex
 用新版本执行 `setup`，即可更新客户端配置里固定的包版本。以 Codex 为例：
 
 ```sh
-dotnet tool exec SerenaPool@0.1.0-preview.6 -- setup codex
+dotnet tool exec SerenaPool@0.1.0-preview.7 -- setup codex
 ```
 
-已安装的客户端如果共用同一份 skill，请在同一条命令里一起更新，例如 `setup codex cursor`。习惯使用全局命令时，先运行 `dotnet tool update --global SerenaPool --version 0.1.0-preview.6`，再执行 `serena-pool setup codex`。
+已安装的客户端如果共用同一份 skill，请在同一条命令里一起更新，例如 `setup codex cursor`。习惯使用全局命令时，先运行 `dotnet tool update --global SerenaPool --version 0.1.0-preview.7`，再执行 `serena-pool setup codex`。
 
 释放正在使用的领用并关闭连接旧共享池的客户端。等旧后台进程退出后，再开启新会话。仅升级全局工具不会修改客户端里固定的版本。
 
@@ -207,7 +207,7 @@ dotnet build SerenaPool.slnx -c Release
 dotnet pack src/SerenaPool -c Release
 
 # 验证本地打包产物
-dotnet tool exec SerenaPool@0.1.0-preview.6 --source src/SerenaPool/bin/Release -- --help
+dotnet tool exec SerenaPool@0.1.0-preview.7 --source src/SerenaPool/bin/Release -- --help
 
 # 使用真实 Serena 与临时目录运行端到端冒烟测试
 dotnet run --project tests/SerenaPool.Smoke -c Release -- "<可写临时目录的绝对路径>"

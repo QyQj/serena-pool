@@ -70,10 +70,10 @@ serena-pool setup codex
 Run `setup` from the new package to update the pinned version in each configured client. For Codex:
 
 ```sh
-dotnet tool exec SerenaPool@0.1.0-preview.6 -- setup codex
+dotnet tool exec SerenaPool@0.1.0-preview.7 -- setup codex
 ```
 
-Include all installed clients that share the same skill directory in the same command, for example `setup codex cursor`. If you prefer using the global command, first run `dotnet tool update --global SerenaPool --version 0.1.0-preview.6`, then run `serena-pool setup codex`.
+Include all installed clients that share the same skill directory in the same command, for example `setup codex cursor`. If you prefer using the global command, first run `dotnet tool update --global SerenaPool --version 0.1.0-preview.7`, then run `serena-pool setup codex`.
 
 Release active leases and close clients connected to the old shared pool. After the old background process exits, start a new client session. Updating the installed command alone does not change the pinned client configurations.
 
@@ -201,7 +201,7 @@ dotnet build SerenaPool.slnx -c Release
 dotnet pack src/SerenaPool -c Release
 
 # Verify the locally packed tool
-dotnet tool exec SerenaPool@0.1.0-preview.6 --source src/SerenaPool/bin/Release -- --help
+dotnet tool exec SerenaPool@0.1.0-preview.7 --source src/SerenaPool/bin/Release -- --help
 
 # Run the end-to-end smoke test against a writable temporary directory
 dotnet run --project tests/SerenaPool.Smoke -c Release -- "<absolute-path-to-writable-temp-dir>"
