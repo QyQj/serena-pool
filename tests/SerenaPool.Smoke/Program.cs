@@ -128,7 +128,7 @@ try
     Check(main["leases"]!.AsArray().Count == 2 && !Text(await Tool("list")).Contains(ids[0]), "shared process, private handles");
     var fromStdio = await pipeClient.CallToolAsync("call", new Dictionary<string, object?>
         { ["instance_id"] = ids[0], ["code"] = "marker = 731\nmarker" }, cancellationToken: ct);
-    Check(Text(fromStdio).Contains("731"), "stdio and HTTP share the same backend and lease");
+    Check(fromStdio.IsError != true && Text(fromStdio).Contains("731"), "stdio executes Python with the lease acquired via HTTP");
     Check(Text(await Call(ids[1], "'independent' if 'marker' not in globals() else 'contaminated'")).Contains("independent"), "independent namespace");
     Check(Text(await Call(ids[0], "marker")).Contains("731"), "persisted namespace");
     const string symbol = "s.lsp.find_symbol('Marker', relative_path='sample.py', include_body=True)";

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
@@ -6,7 +7,8 @@ using ModelContextProtocol.Protocol;
 
 namespace SerenaPool;
 
-internal sealed partial class SerenaProcess(Process launcher, Action terminate, Process server, McpClient client) : IAsyncDisposable
+internal sealed partial class SerenaProcess(
+    Process launcher, Action terminate, Process server, McpClient client, string sessionParameter) : IAsyncDisposable
 {
     public int Pid => server.Id;
     public bool HasExited => server.HasExited || client.Completion.IsCompleted;
@@ -76,9 +78,18 @@ internal sealed partial class SerenaProcess(Process launcher, Action terminate, 
             var transport = new StreamClientTransport(input, launcher.StandardOutput.BaseStream);
             client = await McpClient.CreateAsync(transport, cancellationToken: token);
             var tools = await client.ListToolsAsync(cancellationToken: token);
-            if (!tools.Any(t => t.Name == "serena_repl") || !tools.Any(t => t.Name == "initial_instructions"))
+            var repl = tools.FirstOrDefault(t => t.Name == "serena_repl");
+            if (repl is null || !tools.Any(t => t.Name == "initial_instructions"))
                 throw new McpException(LocalText("MissingReplTools"));
-            return new(launcher, Terminate, server, client);
+            if (!repl.ProtocolTool.InputSchema.TryGetProperty("required", out var required) ||
+                required.ValueKind != JsonValueKind.Array ||
+                required.EnumerateArray()
+                    .Where(parameter => parameter.ValueKind == JsonValueKind.String)
+                    .Select(parameter => parameter.GetString())
+                    .Where(name => name is "session" or "session_id")
+                    .ToArray() is not [string sessionParameter])
+                throw new McpException(LocalText("UnsupportedReplSessionParameter"));
+            return new(launcher, Terminate, server, client, sessionParameter);
         }
         catch (Exception ex)
         {
@@ -113,7 +124,7 @@ internal sealed partial class SerenaProcess(Process launcher, Action terminate, 
     }
 
     public ValueTask<CallToolResult> CallAsync(string session, string code, CancellationToken token) =>
-        client.CallToolAsync("serena_repl", new Dictionary<string, object?> { ["session"] = session, ["code"] = code },
+        client.CallToolAsync("serena_repl", new Dictionary<string, object?> { [sessionParameter] = session, ["code"] = code },
             cancellationToken: token);
 
     public async ValueTask DisposeAsync()

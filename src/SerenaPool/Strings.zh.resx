@@ -122,6 +122,7 @@
   <data name="UnknownCommand" xml:space="preserve"><value>未知命令 {0}。使用 --help 查看用法。</value></data>
   <data name="UnknownOutcome" xml:space="preserve"><value>Serena 连接中断，执行结果未知：{0}</value></data>
   <data name="UnknownTarget" xml:space="preserve"><value>未知安装目标 {0}。运行 setup --help 查看目标。</value></data>
+  <data name="UnsupportedReplSessionParameter" xml:space="preserve"><value>Serena 的 REPL 参数结构必须将 session 或 session_id 中的一个声明为必填参数。</value></data>
   <data name="WebAddressLine" xml:space="preserve"><value>  Web 管理页  {0}/  （启用时）</value></data>
   <data name="WorkdirResolutionFailed" xml:space="preserve"><value>无法解析工作目录 {0}</value></data>
   <data name="WorkerExited" xml:space="preserve"><value>Serena 进程已退出，此进程的领用已失效。</value></data>

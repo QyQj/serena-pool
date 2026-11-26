@@ -122,6 +122,7 @@
   <data name="UnknownCommand" xml:space="preserve"><value>Unknown command {0}. Use --help to see the available commands.</value></data>
   <data name="UnknownOutcome" xml:space="preserve"><value>The Serena connection was lost and the execution outcome is unknown: {0}</value></data>
   <data name="UnknownTarget" xml:space="preserve"><value>Unknown setup target {0}. Run setup --help to list the targets.</value></data>
+  <data name="UnsupportedReplSessionParameter" xml:space="preserve"><value>Serena's REPL schema must require exactly one of the session or session_id parameters.</value></data>
   <data name="WebAddressLine" xml:space="preserve"><value>  Dashboard   {0}/  (when enabled)</value></data>
   <data name="WorkdirResolutionFailed" xml:space="preserve"><value>Cannot resolve the working directory {0}</value></data>
   <data name="WorkerExited" xml:space="preserve"><value>The Serena worker exited. Its leases are no longer valid.</value></data>
